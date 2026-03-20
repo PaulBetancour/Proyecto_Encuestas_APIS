@@ -353,7 +353,6 @@
             const [loading, setLoading] = useState(false);
             const [result, setResult] = useState(null);
             const [error, setError] = useState(null);
-            const [maxFilas, setMaxFilas] = useState(5000);
 
             const handleFileChange = async (e) => {
                 const f = e.target.files[0];
@@ -388,7 +387,8 @@
                 setResult(null);
 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 90000);
+                const usarTimeout = csvType !== 'cnpv';
+                const timeoutId = usarTimeout ? setTimeout(() => controller.abort(), 60000) : null;
 
                 try {
                     const formData = new FormData();
@@ -396,13 +396,18 @@
 
                     let url;
                     if (csvType === 'cnpv') {
-                        url = 'http://127.0.0.1:8000/datasets/cnpv/analizar/?max_filas=' + maxFilas;
+                        url = 'http://127.0.0.1:8000/datasets/cnpv/analizar/';
                     } else {
                         url = 'http://127.0.0.1:8000/encuestas/csv/';
                     }
 
-                    const response = await fetch(url, { method: 'POST', body: formData, signal: controller.signal });
-                    clearTimeout(timeoutId);
+                    const response = await fetch(
+                        url,
+                        usarTimeout
+                            ? { method: 'POST', body: formData, signal: controller.signal }
+                            : { method: 'POST', body: formData }
+                    );
+                    if (timeoutId) clearTimeout(timeoutId);
 
                     if (!response.ok) {
                         const errorData = await response.json();
@@ -412,9 +417,24 @@
                     const data = await response.json();
                     setResult({ ...data, _tipo: csvType });
                 } catch (err) {
-                    clearTimeout(timeoutId);
+                    if (timeoutId) clearTimeout(timeoutId);
                     if (err.name === 'AbortError') {
-                        setError('Tiempo agotado (90s). Intente con menos filas (ej: 1000).');
+                        if (csvType === 'cnpv') {
+                            try {
+                                const ultimo = await fetch('http://127.0.0.1:8000/datasets/cnpv/ultimo/');
+                                if (ultimo.ok) {
+                                    const ultimoData = await ultimo.json();
+                                    setResult({ ...ultimoData, _tipo: 'cnpv' });
+                                    setError('El análisis tardó más de lo esperado, pero se recuperó el último reporte generado.');
+                                } else {
+                                    setError('Tiempo agotado. Intente nuevamente.');
+                                }
+                            } catch (fallbackErr) {
+                                setError('Tiempo agotado. Intente nuevamente.');
+                            }
+                        } else {
+                            setError('Tiempo agotado (60s). Revise que la API esté activa en 127.0.0.1:8000.');
+                        }
                     } else {
                         setError(err.message || '¿Está corriendo el servidor en http://127.0.0.1:8000?');
                     }
@@ -427,6 +447,28 @@
                 cnpv:        { label: '📊 CSV CNPV detectado',       cls: 'bg-blue-50 border-blue-300 text-blue-800' },
                 encuestas:   { label: '📋 CSV Encuestas detectado',  cls: 'bg-green-50 border-green-300 text-green-800' },
                 desconocido: { label: '⚠️ Formato no reconocido',    cls: 'bg-yellow-50 border-yellow-300 text-yellow-800' },
+            };
+
+            const renderCampoResumen = (titulo, data) => {
+                if (!data || data.disponible === false) {
+                    return (
+                        <div className="bg-gray-50 border border-gray-200 rounded p-2 text-xs text-gray-500">
+                            <span className="font-semibold">{titulo}:</span> no disponible en este archivo
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="bg-gray-50 border border-gray-200 rounded p-2 text-xs">
+                        <p className="font-semibold text-gray-700">{titulo}</p>
+                        <p className="text-gray-500 mb-1">No nulos: {data.no_nulos} ({data.porcentaje_no_nulo}%)</p>
+                        {(data.top_valores || []).slice(0, 3).map((v, i) => (
+                            <p key={`${titulo}-${i}`} className="text-gray-700">
+                                {v.codigo} - {v.etiqueta}: <span className="font-semibold">{v.conteo}</span>
+                            </p>
+                        ))}
+                    </div>
+                );
             };
 
             return (
@@ -465,14 +507,9 @@
 
                                 {csvType === 'cnpv' && (
                                     <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            <i className="fas fa-sliders-h"></i> Máx. filas a procesar:
-                                        </label>
-                                        <input type="number" value={maxFilas}
-                                            onChange={(e) => setMaxFilas(parseInt(e.target.value) || 1000)}
-                                            min="100" step="1000"
-                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                                        <p className="text-xs text-gray-500 mt-1">1 000–5 000 para demo rápida.</p>
+                                        <p className="text-xs text-gray-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                                            Se procesa el archivo completo para mostrar resultados reales.
+                                        </p>
                                     </div>
                                 )}
 
@@ -506,10 +543,81 @@
                                             <p className="font-bold text-blue-900 text-lg">{(result.filas_procesadas||0).toLocaleString()}</p>
                                         </div>
                                         <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
-                                            <p className="text-xs text-green-600">Válidas</p>
+                                            <p className="text-xs text-green-600">Leídas correctamente</p>
                                             <p className="font-bold text-green-900 text-lg">{(result.filas_validas||0).toLocaleString()}</p>
                                         </div>
                                     </div>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-center">
+                                            <p className="text-xs text-emerald-700">Campos clave completos</p>
+                                            <p className="font-bold text-emerald-900">{(result.filas_con_campos_clave_completos||0).toLocaleString()}</p>
+                                        </div>
+                                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 text-center">
+                                            <p className="text-xs text-orange-700">Campos clave incompletos</p>
+                                            <p className="font-bold text-orange-900">{(result.filas_con_campos_clave_incompletos||0).toLocaleString()}</p>
+                                        </div>
+                                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-center">
+                                            <p className="text-xs text-amber-700">Filas con nulos</p>
+                                            <p className="font-bold text-amber-900">{(result.filas_con_nulos||0).toLocaleString()}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-indigo-600">Columnas detectadas</p>
+                                            <p className="font-bold text-indigo-900 text-lg">{result.total_columnas || 0}</p>
+                                        </div>
+                                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-amber-700">Campos vacíos</p>
+                                            <p className="font-bold text-amber-900 text-lg">{(result.porcentaje_campos_vacios ?? 0).toLocaleString()}%</p>
+                                        </div>
+                                    </div>
+
+                                    {result.columnas_detectadas && (
+                                        <div>
+                                            <h5 className="font-semibold text-gray-700 mb-1"><i className="fas fa-columns mr-1"></i>Columnas del archivo</h5>
+                                            <div className="max-h-24 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200 text-xs text-gray-700">
+                                                {result.columnas_detectadas.join(' | ')}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {result.modelos_proyecto && (
+                                        <div>
+                                            <h5 className="font-semibold text-gray-700 mb-1"><i className="fas fa-sitemap mr-1"></i>Modelos anidados (RF1) desde CNPV</h5>
+                                            <div className="space-y-2">
+                                                <div className="bg-blue-50 border border-blue-200 rounded p-2">
+                                                    <p className="font-semibold text-blue-800 mb-1">Modelo Ubicacion</p>
+                                                    <div className="grid grid-cols-1 gap-1">
+                                                        {renderCampoResumen('U_DPTO', result.modelos_proyecto.ubicacion?.resumen?.U_DPTO)}
+                                                        {renderCampoResumen('U_MPIO', result.modelos_proyecto.ubicacion?.resumen?.U_MPIO)}
+                                                        {renderCampoResumen('UA_CLASE', result.modelos_proyecto.ubicacion?.resumen?.UA_CLASE)}
+                                                    </div>
+                                                </div>
+
+                                                <div className="bg-green-50 border border-green-200 rounded p-2">
+                                                    <p className="font-semibold text-green-800 mb-1">Modelo ViviendaDetalle</p>
+                                                    <div className="grid grid-cols-1 gap-1">
+                                                        {renderCampoResumen('VA1_ESTRATO', result.modelos_proyecto.vivienda_detalle?.resumen?.VA1_ESTRATO)}
+                                                        {renderCampoResumen('V_MAT_PISO', result.modelos_proyecto.vivienda_detalle?.resumen?.V_MAT_PISO)}
+                                                        {renderCampoResumen('VF_INTERNET', result.modelos_proyecto.vivienda_detalle?.resumen?.VF_INTERNET)}
+                                                    </div>
+                                                </div>
+
+                                                <div className="bg-purple-50 border border-purple-200 rounded p-2">
+                                                    <p className="font-semibold text-purple-800 mb-1">Modelo EncuestaHogar</p>
+                                                    <div className="grid grid-cols-1 gap-1">
+                                                        {renderCampoResumen('UVA_USO_UNIDAD', result.modelos_proyecto.encuesta_hogar?.resumen?.UVA_USO_UNIDAD)}
+                                                        {renderCampoResumen('V_TIPO_VIV', result.modelos_proyecto.encuesta_hogar?.resumen?.V_TIPO_VIV)}
+                                                        {renderCampoResumen('V_TOT_HOG', result.modelos_proyecto.encuesta_hogar?.resumen?.V_TOT_HOG)}
+                                                        {renderCampoResumen('COD_ENCUESTAS', result.modelos_proyecto.encuesta_hogar?.resumen?.COD_ENCUESTAS)}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div>
                                         <h5 className="font-semibold text-gray-700 mb-1"><i className="fas fa-map-marker-alt mr-1"></i>Top Dptos.</h5>
                                         <div className="max-h-40 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200 text-xs">
@@ -520,6 +628,7 @@
                                             ))}
                                         </div>
                                     </div>
+
                                     <div>
                                         <h5 className="font-semibold text-gray-700 mb-1"><i className="fas fa-layer-group mr-1"></i>Por Estrato</h5>
                                         <div className="grid grid-cols-3 gap-1">
@@ -530,8 +639,40 @@
                                             ))}
                                         </div>
                                     </div>
-                                    {result.filas_invalidas > 0 && (
-                                        <p className="text-xs text-orange-600"><i className="fas fa-exclamation-triangle mr-1"></i>{result.filas_invalidas} filas con errores</p>
+
+                                    {result.estadisticas_numericas && Object.keys(result.estadisticas_numericas).length > 0 && (
+                                        <div>
+                                            <h5 className="font-semibold text-gray-700 mb-1"><i className="fas fa-calculator mr-1"></i>Estadísticas numéricas (reales)</h5>
+                                            <div className="max-h-40 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200 text-xs space-y-1">
+                                                {Object.entries(result.estadisticas_numericas).map(([col, st]) => (
+                                                    <div key={col} className="grid grid-cols-5 gap-1 border-b border-gray-100 pb-1">
+                                                        <span className="font-semibold text-gray-700">{col}</span>
+                                                        <span>n={st.count}</span>
+                                                        <span>min={st.min}</span>
+                                                        <span>max={st.max}</span>
+                                                        <span>prom={st.mean}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {result.nulos_por_columna_top && result.nulos_por_columna_top.length > 0 && (
+                                        <div>
+                                            <h5 className="font-semibold text-gray-700 mb-1"><i className="fas fa-ban mr-1"></i>Top columnas con vacíos</h5>
+                                            <div className="max-h-32 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200 text-xs">
+                                                {result.nulos_por_columna_top.map((it, i) => (
+                                                    <div key={`${it.columna}-${i}`} className="flex justify-between py-0.5 border-b border-gray-100 last:border-0">
+                                                        <span>{it.columna}</span>
+                                                        <span className="font-semibold text-orange-700">{it.nulos}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {(result.filas_con_campos_clave_incompletos || 0) > 0 && (
+                                        <p className="text-xs text-orange-600"><i className="fas fa-exclamation-triangle mr-1"></i>{result.filas_con_campos_clave_incompletos} filas tienen campos clave vacíos (no se descartan, se reportan).</p>
                                     )}
                                 </div>
                             )}
@@ -589,6 +730,33 @@
                                 <p className="text-xs">Columnas: <code className="bg-gray-100 px-1 rounded">nombre, edad, estrato, departamento</code></p>
                                 <p className="text-xs text-gray-500 mt-1">→ Endpoint: <code>POST /encuestas/csv/</code></p>
                             </div>
+                        </div>
+                    </div>
+
+                    <div className="chip-box p-4 rounded-lg">
+                        <h5 className="font-bold text-primary mb-2 flex items-center gap-2">
+                            <i className="fas fa-book"></i> Diccionario CNPV (variables clave)
+                        </h5>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-xs border border-gray-200 rounded-lg bg-white">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-2 py-2 text-left">Variable</th>
+                                        <th className="px-2 py-2 text-left">Significado</th>
+                                        <th className="px-2 py-2 text-left">Categorías</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr className="border-t"><td className="px-2 py-1 font-semibold">VA1_ESTRATO</td><td className="px-2 py-1">Estrato de la vivienda</td><td className="px-2 py-1">0 Sin estrato, 1..6 Estratos, 9 No sabe</td></tr>
+                                    <tr className="border-t"><td className="px-2 py-1 font-semibold">UA_CLASE</td><td className="px-2 py-1">Clase</td><td className="px-2 py-1">1 Cabecera, 2 Centro poblado, 3 Rural disperso, 4 Resto rural</td></tr>
+                                    <tr className="border-t"><td className="px-2 py-1 font-semibold">UVA_USO_UNIDAD</td><td className="px-2 py-1">Uso de la unidad</td><td className="px-2 py-1">1 Vivienda, 2 Mixto, 3 No residencial, 4 LEA</td></tr>
+                                    <tr className="border-t"><td className="px-2 py-1 font-semibold">V_TIPO_VIV</td><td className="px-2 py-1">Tipo de vivienda</td><td className="px-2 py-1">1 Casa, 2 Apto, 3 Cuarto, 4 Indígena, 5 Étnica, 6 Otro</td></tr>
+                                    <tr className="border-t"><td className="px-2 py-1 font-semibold">V_MAT_PISO</td><td className="px-2 py-1">Material de piso</td><td className="px-2 py-1">1 Mármol/madera, 2 Baldosa, 3 Alfombra, 4 Cemento, 5 Madera burda, 6 Tierra</td></tr>
+                                    <tr className="border-t"><td className="px-2 py-1 font-semibold">VF_INTERNET</td><td className="px-2 py-1">Internet</td><td className="px-2 py-1">1 Sí, 2 No</td></tr>
+                                    <tr className="border-t"><td className="px-2 py-1 font-semibold">U_DPTO / U_MPIO</td><td className="px-2 py-1">Ubicación DANE</td><td className="px-2 py-1">Departamento (2 dígitos) y municipio (3 dígitos)</td></tr>
+                                    <tr className="border-t"><td className="px-2 py-1 font-semibold">COD_ENCUESTAS</td><td className="px-2 py-1">Código de encuesta</td><td className="px-2 py-1">Identificador numérico del registro</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -1213,7 +1381,7 @@ pip install fastapi uvicorn pydantic python-multipart pytest numpy`}</code></pre
                                 <li>Busque POST /datasets/cnpv/analizar/</li>
                                 <li>Click "Try it out"</li>
                                 <li>Click en selector de archivo y elija: data/entrada/CNPV2018_1VIV_A2_11.CSV</li>
-                                <li>Opcionalmente ajuste max_filas (ej: 50000)</li>
+                                <li>Ejecute el análisis completo del archivo</li>
                                 <li>Click "Execute"</li>
                                 <li>Vea el análisis: filas procesadas, distribución por departamento y estrato</li>
                             </ol>

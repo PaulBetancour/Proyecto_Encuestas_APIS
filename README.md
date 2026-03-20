@@ -203,22 +203,53 @@ POST /datasets/cnpv/analizar/?max_filas=50000
 Subes el archivo CNPV original. Respuesta:
 ```json
 {
-  "filas_procesadas": 45230,
-  "filas_validas": 45230,
-  "distribucion_u_dpto": {
-    "Antioquia": 5200,
-    "Bogota": 8100,
-    "Cundinamarca": 3450,
-    ...
+  "archivo": "CNPV2018_1VIV_A2_11.CSV",
+  "columnas_detectadas": ["TIPO_REG", "U_DPTO", "U_MPIO", "UA_CLASE", "..."],
+  "total_columnas": 30,
+  "filas_procesadas": 2000,
+  "filas_validas": 1837,
+  "filas_invalidas": 163,
+  "porcentaje_campos_vacios": 26.38,
+  "estadisticas_numericas": {
+    "V_TOT_HOG": {"count": 1837, "min": 1.0, "max": 6.0, "mean": 1.07},
+    "VA1_ESTRATO": {"count": 1837, "min": 0.0, "max": 9.0, "mean": 2.92}
   },
-  "distribucion_estrato": {
-    "1": 15000,
-    "2": 18500,
-    "3": 9600,
-    ...
+  "resumen_campos_clave": {
+    "U_DPTO": {"no_nulos": 2000, "top_valores": [{"codigo": "11", "etiqueta": "BOGOTA, D.C.", "conteo": 1837}]},
+    "VA1_ESTRATO": {"no_nulos": 1837, "top_valores": [{"codigo": "2", "etiqueta": "Estrato 2", "conteo": 729}]}
+  },
+  "modelos_proyecto": {
+    "ubicacion": {"campos": ["U_DPTO", "U_MPIO", "UA_CLASE"]},
+    "vivienda_detalle": {"campos": ["VA1_ESTRATO", "V_MAT_PISO", "VF_INTERNET"]},
+    "encuesta_hogar": {"campos": ["UVA_USO_UNIDAD", "V_TIPO_VIV", "V_TOT_HOG", "COD_ENCUESTAS"]}
   }
 }
 ```
+
+### 🧾 Diccionario CNPV (Variables y Categorías)
+
+Este diccionario se usa en el backend para traducir códigos a etiquetas legibles y mostrar resultados correctos en el panel HTML y en Swagger.
+
+| Variable | Significado | Categorías principales |
+|---|---|---|
+| `VA1_ESTRATO` | Estrato de la vivienda (según servicio de energía) | `0` Sin Estrato, `1` Estrato 1, `2` Estrato 2, `3` Estrato 3, `4` Estrato 4, `5` Estrato 5, `6` Estrato 6, `9` No sabe |
+| `UA_CLASE` | Clase del asentamiento | `1` Cabecera Municipal, `2` Centro Poblado, `3` Rural Disperso, `4` Resto Rural |
+| `UVA_USO_UNIDAD` | Uso de la unidad | `1` Vivienda, `2` Mixto, `3` Unidad no residencial, `4` LEA |
+| `V_TIPO_VIV` | Tipo de vivienda | `1` Casa, `2` Apartamento, `3` Tipo cuarto, `4` Tradicional indígena, `5` Tradicional étnica, `6` Otro |
+| `V_TOT_HOG` | Total de hogares en la vivienda | Valor numérico discreto (habitualmente `1` a `20+`) |
+| `U_DPTO` | Departamento (código DANE) | `05` Antioquia, `08` Atlántico, `11` Bogotá D.C., ..., `99` Vichada |
+| `U_MPIO` | Municipio (código DANE) | Código municipal de 3 dígitos |
+| `V_MAT_PISO` | Material predominante de piso | `1` Mármol/madera, `2` Baldosa/vinilo, `3` Alfombra, `4` Cemento/gravilla, `5` Madera burda, `6` Tierra/arena/barro |
+| `VF_INTERNET` | Servicio de internet en la vivienda | `1` Sí, `2` No |
+| `COD_ENCUESTAS` | Código de encuesta/vivienda | Identificador numérico de registro |
+
+### 🧩 Adaptación a los 3 modelos de la rúbrica
+
+- **Modelo Ubicación**: `U_DPTO`, `U_MPIO`, `UA_CLASE`
+- **Modelo ViviendaDetalle**: `VA1_ESTRATO`, `V_MAT_PISO`, `VF_INTERNET`
+- **Modelo EncuestaHogar**: `UVA_USO_UNIDAD`, `V_TIPO_VIV`, `V_TOT_HOG`, `COD_ENCUESTAS`
+
+Con esto, la API no intenta mapear las 30 columnas en un único formulario largo, sino que agrupa variables críticas para sustentar RF1 (modelos anidados), RF2 (validación) y RF3 (análisis).
 
 **Consultar último reporte CNPV:**
 ```bash

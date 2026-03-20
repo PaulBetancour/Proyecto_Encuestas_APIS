@@ -1,7 +1,8 @@
+import asyncio
 import logging
 import csv
 from collections import Counter
-from io import StringIO
+from io import StringIO, TextIOWrapper
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, status
@@ -44,6 +45,215 @@ ALIASES_ENCUESTADO = {
     "estrato": ["estrato", "estrato_socioeconomico", "nivel_estrato", "socioeconomic_stratum"],
     "departamento": ["departamento", "depto", "departamento_residencia", "region", "state"],
 }
+
+CNPV_DPTOS = {
+    "05": "ANTIOQUIA", "08": "ATLANTICO", "11": "BOGOTA, D.C.", "13": "BOLIVAR", "15": "BOYACA",
+    "17": "CALDAS", "18": "CAQUETA", "19": "CAUCA", "20": "CESAR", "23": "CORDOBA",
+    "25": "CUNDINAMARCA", "27": "CHOCO", "41": "HUILA", "44": "LA GUAJIRA", "47": "MAGDALENA",
+    "50": "META", "52": "NARINO", "54": "NORTE DE SANTANDER", "63": "QUINDIO", "66": "RISARALDA",
+    "68": "SANTANDER", "70": "SUCRE", "73": "TOLIMA", "76": "VALLE DEL CAUCA", "81": "ARAUCA",
+    "85": "CASANARE", "86": "PUTUMAYO", "88": "SAN ANDRES, PROVIDENCIA Y SANTA CATALINA",
+    "91": "AMAZONAS", "94": "GUAINIA", "95": "GUAVIARE", "97": "VAUPES", "99": "VICHADA",
+}
+
+CNPV_CATEGORIAS: dict[str, dict[str, str]] = {
+    "VA1_ESTRATO": {
+        "0": "Sin Estrato", "1": "Estrato 1", "2": "Estrato 2", "3": "Estrato 3",
+        "4": "Estrato 4", "5": "Estrato 5", "6": "Estrato 6", "9": "No sabe el estrato",
+    },
+    "UA_CLASE": {
+        "1": "Cabecera Municipal", "2": "Centro Poblado", "3": "Rural Disperso", "4": "Resto Rural",
+    },
+    "UVA_USO_UNIDAD": {
+        "1": "Vivienda", "2": "Mixto", "3": "Unidad No Residencial", "4": "Lugar Especial de Alojamiento",
+    },
+    "V_TIPO_VIV": {
+        "1": "Casa", "2": "Apartamento", "3": "Tipo cuarto", "4": "Vivienda tradicional indigena",
+        "5": "Vivienda tradicional etnica", "6": "Otro",
+    },
+    "VF_INTERNET": {"1": "Si", "2": "No"},
+    "V_MAT_PISO": {
+        "1": "Marmol/parque/madera", "2": "Baldosa/vinilo/tableta", "3": "Alfombra",
+        "4": "Cemento/gravilla", "5": "Madera burda/vegetal", "6": "Tierra/arena/barro",
+    },
+    "U_DPTO": CNPV_DPTOS,
+}
+
+
+def _etiqueta_cnpv(campo: str, codigo: str) -> str:
+    if campo == "U_DPTO":
+        codigo = codigo.zfill(2)
+    return CNPV_CATEGORIAS.get(campo, {}).get(codigo, codigo)
+
+
+def _construir_reporte_cnpv_desde_texto(texto: str, filename: str, max_filas: int | None) -> dict[str, Any]:
+    global ULTIMO_REPORTE_CNPV
+
+    reader = csv.DictReader(StringIO(texto))
+    requeridas = {"U_DPTO", "VA1_ESTRATO", "COD_ENCUESTAS", "U_VIVIENDA"}
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="El CSV no tiene encabezados")
+
+    faltantes = [c for c in sorted(requeridas) if c not in reader.fieldnames]
+    if faltantes:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "mensaje": "El archivo no coincide con estructura CNPV esperada",
+                "faltantes": faltantes,
+            },
+        )
+
+    columnas = list(reader.fieldnames)
+    campos_clave = [
+        "U_DPTO", "U_MPIO", "UA_CLASE",
+        "VA1_ESTRATO", "V_MAT_PISO", "VF_INTERNET",
+        "UVA_USO_UNIDAD", "V_TIPO_VIV", "V_TOT_HOG", "COD_ENCUESTAS",
+    ]
+
+    total = 0
+    filas_con_campos_clave_completos = 0
+    filas_con_campos_clave_incompletos = 0
+    filas_con_nulos = 0
+    errores = []
+    conteo_dpto: Counter[str] = Counter()
+    conteo_estrato: Counter[str] = Counter()
+    nulos_por_columna: Counter[str] = Counter()
+    conteo_campos: dict[str, Counter[str]] = {campo: Counter() for campo in campos_clave if campo in columnas}
+
+    columnas_numericas_interes = ["V_TOT_HOG", "L_TOT_PERL", "VA1_ESTRATO", "U_MPIO", "U_DPTO"]
+    acumuladores_numericos: dict[str, dict[str, float]] = {
+        c: {"count": 0, "sum": 0.0, "min": float("inf"), "max": float("-inf")}
+        for c in columnas_numericas_interes
+        if c in columnas
+    }
+
+    for idx, fila in enumerate(reader, start=2):
+        if max_filas is not None and total >= max_filas:
+            break
+        total += 1
+
+        fila_tiene_nulos = False
+        for col in columnas:
+            if not (fila.get(col) or "").strip():
+                nulos_por_columna[col] += 1
+                fila_tiene_nulos = True
+
+        if fila_tiene_nulos:
+            filas_con_nulos += 1
+
+        dpto = (fila.get("U_DPTO") or "").strip()
+        estrato = (fila.get("VA1_ESTRATO") or "").strip()
+        cod_enc = (fila.get("COD_ENCUESTAS") or "").strip()
+        viv = (fila.get("U_VIVIENDA") or "").strip()
+
+        faltantes_clave = []
+        if not dpto:
+            faltantes_clave.append("U_DPTO")
+        if not estrato:
+            faltantes_clave.append("VA1_ESTRATO")
+        if not cod_enc:
+            faltantes_clave.append("COD_ENCUESTAS")
+        if not viv:
+            faltantes_clave.append("U_VIVIENDA")
+
+        if faltantes_clave:
+            filas_con_campos_clave_incompletos += 1
+            if len(errores) < 25:
+                errores.append({"fila": idx, "error": "Campos clave vacios", "faltantes": faltantes_clave})
+        else:
+            filas_con_campos_clave_completos += 1
+
+        if dpto:
+            conteo_dpto[dpto] += 1
+        if estrato:
+            conteo_estrato[estrato] += 1
+
+        for campo in conteo_campos:
+            valor_campo = (fila.get(campo) or "").strip()
+            if not valor_campo:
+                continue
+            if campo == "U_DPTO":
+                valor_campo = valor_campo.zfill(2)
+            conteo_campos[campo][valor_campo] += 1
+
+        for col in acumuladores_numericos:
+            raw = (fila.get(col) or "").strip()
+            if not raw:
+                continue
+            try:
+                valor = float(raw.replace(",", "."))
+            except ValueError:
+                continue
+
+            stats = acumuladores_numericos[col]
+            stats["count"] += 1
+            stats["sum"] += valor
+            if valor < stats["min"]:
+                stats["min"] = valor
+            if valor > stats["max"]:
+                stats["max"] = valor
+
+    total_celdas = total * len(columnas) if total and columnas else 0
+    total_nulos = sum(nulos_por_columna.values())
+
+    estadisticas_numericas: dict[str, dict[str, float]] = {}
+    for col, stats in acumuladores_numericos.items():
+        if stats["count"] == 0:
+            continue
+        estadisticas_numericas[col] = {
+            "count": int(stats["count"]),
+            "min": round(stats["min"], 2),
+            "max": round(stats["max"], 2),
+            "mean": round(stats["sum"] / stats["count"], 2),
+        }
+
+    top_nulos = sorted(nulos_por_columna.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    resumen_campos_clave: dict[str, Any] = {}
+    for campo in campos_clave:
+        if campo not in columnas:
+            resumen_campos_clave[campo] = {"disponible": False, "mensaje": "Campo no presente en el archivo"}
+            continue
+
+        no_nulos = total - nulos_por_columna.get(campo, 0)
+        top_vals = []
+        for codigo, conteo in conteo_campos.get(campo, Counter()).most_common(10):
+            top_vals.append({"codigo": codigo, "etiqueta": _etiqueta_cnpv(campo, codigo), "conteo": conteo})
+
+        resumen_campos_clave[campo] = {
+            "disponible": True,
+            "no_nulos": no_nulos,
+            "porcentaje_no_nulo": round((no_nulos / total) * 100, 2) if total else 0.0,
+            "top_valores": top_vals,
+        }
+
+    reporte = {
+        "archivo": filename,
+        "columnas_detectadas": columnas,
+        "total_columnas": len(columnas),
+        "filas_procesadas": total,
+        "filas_validas": total,
+        "filas_invalidas": 0,
+        "filas_con_campos_clave_completos": filas_con_campos_clave_completos,
+        "filas_con_campos_clave_incompletos": filas_con_campos_clave_incompletos,
+        "filas_con_nulos": filas_con_nulos,
+        "porcentaje_campos_vacios": round((total_nulos / total_celdas) * 100, 2) if total_celdas else 0.0,
+        "nulos_por_columna_top": [{"columna": c, "nulos": n} for c, n in top_nulos],
+        "estadisticas_numericas": estadisticas_numericas,
+        "distribucion_u_dpto": dict(conteo_dpto),
+        "distribucion_estrato": dict(conteo_estrato),
+        "campos_clave_analizados": [c for c in campos_clave if c in columnas],
+        "resumen_campos_clave": resumen_campos_clave,
+        "modelos_proyecto": {
+            "ubicacion": {"campos": ["U_DPTO", "U_MPIO", "UA_CLASE"], "resumen": {k: resumen_campos_clave[k] for k in ["U_DPTO", "U_MPIO", "UA_CLASE"]}},
+            "vivienda_detalle": {"campos": ["VA1_ESTRATO", "V_MAT_PISO", "VF_INTERNET"], "resumen": {k: resumen_campos_clave[k] for k in ["VA1_ESTRATO", "V_MAT_PISO", "VF_INTERNET"]}},
+            "encuesta_hogar": {"campos": ["UVA_USO_UNIDAD", "V_TIPO_VIV", "V_TOT_HOG", "COD_ENCUESTAS"], "resumen": {k: resumen_campos_clave[k] for k in ["UVA_USO_UNIDAD", "V_TIPO_VIV", "V_TOT_HOG", "COD_ENCUESTAS"]}},
+        },
+        "muestra_errores": errores,
+    }
+    ULTIMO_REPORTE_CNPV = reporte
+    return reporte
 
 
 def _normalize_key(value: str) -> str:
@@ -339,84 +549,30 @@ def estado_requisitos() -> dict[str, Any]:
     "/datasets/cnpv/analizar/",
     summary="Analizar base real CNPV",
     description=(
-        "Analiza un CSV real del CNPV (viviendas) sin inventar campos. "
-        "Valida columnas requeridas y genera metricas descriptivas para sustentacion."
+        "Endpoint correcto para probar el archivo real del CNPV en Swagger. "
+        "Analiza un CSV de viviendas sin inventar campos, genera metricas reales, "
+        "resume los 3 modelos del proyecto y puede tardar varios segundos o minutos "
+        "si el archivo es grande porque la respuesta es sincrona. "
+        "No use /encuestas/csv/ para el CNPV."
     ),
 )
 @log_request
 async def analizar_csv_cnpv(
     file: UploadFile = File(...),
-    max_filas: int = 50000,
+    max_filas: int | None = None,
     request: Request = None,
 ) -> dict[str, Any]:
-    global ULTIMO_REPORTE_CNPV
-
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="El archivo debe ser CSV")
-    if max_filas < 1 or max_filas > 2_000_000:
+    if max_filas is not None and (max_filas < 1 or max_filas > 2_000_000):
         raise HTTPException(status_code=400, detail="max_filas debe estar entre 1 y 2000000")
 
-    contenido = await file.read()
     try:
+        contenido = await file.read()
         texto = contenido.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise HTTPException(status_code=400, detail="No se pudo decodificar el CSV en UTF-8") from exc
-
-    reader = csv.DictReader(StringIO(texto))
-    requeridas = {"U_DPTO", "VA1_ESTRATO", "COD_ENCUESTAS", "U_VIVIENDA"}
-    if not reader.fieldnames:
-        raise HTTPException(status_code=400, detail="El CSV no tiene encabezados")
-
-    faltantes = [c for c in sorted(requeridas) if c not in reader.fieldnames]
-    if faltantes:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "mensaje": "El archivo no coincide con estructura CNPV esperada",
-                "faltantes": faltantes,
-            },
-        )
-
-    total = 0
-    filas_validas = 0
-    filas_invalidas = 0
-    errores = []
-    conteo_dpto: Counter[str] = Counter()
-    conteo_estrato: Counter[str] = Counter()
-
-    for idx, fila in enumerate(reader, start=2):
-        if total >= max_filas:
-            break
-        total += 1
-
-        try:
-            dpto = (fila.get("U_DPTO") or "").strip()
-            estrato = (fila.get("VA1_ESTRATO") or "").strip()
-            cod_enc = (fila.get("COD_ENCUESTAS") or "").strip()
-            viv = (fila.get("U_VIVIENDA") or "").strip()
-
-            if not all([dpto, estrato, cod_enc, viv]):
-                raise ValueError("Campos clave vacios")
-
-            conteo_dpto[dpto] += 1
-            conteo_estrato[estrato] += 1
-            filas_validas += 1
-        except Exception as exc:  # noqa: BLE001
-            filas_invalidas += 1
-            if len(errores) < 25:
-                errores.append({"fila": idx, "error": str(exc)})
-
-    reporte = {
-        "archivo": file.filename,
-        "filas_procesadas": total,
-        "filas_validas": filas_validas,
-        "filas_invalidas": filas_invalidas,
-        "distribucion_u_dpto": dict(conteo_dpto),
-        "distribucion_estrato": dict(conteo_estrato),
-        "muestra_errores": errores,
-    }
-    ULTIMO_REPORTE_CNPV = reporte
-    return reporte
+    return await asyncio.to_thread(_construir_reporte_cnpv_desde_texto, texto, file.filename, max_filas)
 
 
 @app.get(
@@ -460,7 +616,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     response_model=EncuestaCompleta,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar una encuesta completa",
-    description="Registra una encuesta con datos demograficos del encuestado y sus respuestas.",
+    description=(
+        "Endpoint CRUD academico para RF1-RF5. "
+        "Se usa con JSON manual (encuestado + respuestas). "
+        "No se usa para subir el archivo CNPV real."
+    ),
 )
 @log_request
 def crear_encuesta(encuesta: EncuestaCompleta, request: Request) -> EncuestaCompleta:
@@ -511,9 +671,10 @@ def obtener_estadisticas(request: Request) -> EstadisticasEncuesta:
     "/encuestas/csv/",
     summary="Cargar encuestas desde CSV",
     description=(
-        "Ingiere un archivo CSV y crea encuestas en memoria. "
+        "Carga un CSV didactico de encuestas y crea encuestas en memoria para el CRUD. "
         "Columnas base: nombre, edad, estrato, departamento. "
-        "Respuestas: q1_tipo, q1_valor, q1_comentario; q2_tipo, q2_valor..."
+        "Respuestas: q1_tipo, q1_valor, q1_comentario; q2_tipo, q2_valor... "
+        "No sirve para el archivo CNPV real; para ese caso use /datasets/cnpv/analizar/."
     ),
 )
 @log_request
@@ -521,13 +682,12 @@ async def cargar_csv(file: UploadFile = File(...), request: Request = None) -> d
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="El archivo debe ser CSV")
 
-    contenido = await file.read()
     try:
-        texto = contenido.decode("utf-8-sig")
+        file.file.seek(0)
+        text_stream = TextIOWrapper(file.file, encoding="utf-8-sig", newline="")
+        reader = csv.DictReader(text_stream)
     except UnicodeDecodeError as exc:
         raise HTTPException(status_code=400, detail="No se pudo decodificar el CSV en UTF-8") from exc
-
-    reader = csv.DictReader(StringIO(texto))
     creadas = 0
     errores = []
 
