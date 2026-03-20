@@ -32,8 +32,8 @@
                         mono: ['Fira Code', 'monospace'],
                     },
                     colors: {
-                        primary: '#3D008D',
-                        secondary: '#ED1E79',
+                        primary: '#64748B',
+                        secondary: '#64748B',
                         navy: '#001A4D',
                         gold: '#FDB913',
                         bg: '#F8FAFC',
@@ -57,7 +57,7 @@
         }
 
         .gradient-usta {
-            background: linear-gradient(140deg, #3D008D 0%, #ED1E79 100%);
+            background: linear-gradient(140deg, #64748B 0%, #64748B 100%);
         }
 
         .header-usta {
@@ -77,13 +77,13 @@
         }
 
         .chip-box {
-            background: linear-gradient(135deg, rgba(61, 0, 141, 0.08) 0%, rgba(237, 30, 121, 0.08) 100%);
-            border: 1px solid rgba(61, 0, 141, 0.2);
+            background: linear-gradient(135deg, rgba(100, 116, 139, 0.08) 0%, rgba(100, 116, 139, 0.08) 100%);
+            border: 1px solid rgba(100, 116, 139, 0.2);
         }
 
         .nav-item.active {
-            background: linear-gradient(90deg, rgba(61, 0, 141, 0.15) 0%, transparent 100%);
-            border-left: 4px solid #ED1E79;
+            background: linear-gradient(90deg, rgba(100, 116, 139, 0.15) 0%, transparent 100%);
+            border-left: 4px solid #64748B;
         }
 
         ::-webkit-scrollbar {
@@ -96,7 +96,7 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: linear-gradient(180deg, #3D008D, #ED1E79);
+            background: linear-gradient(180deg, #64748B, #64748B);
             border-radius: 4px;
         }
 
@@ -515,7 +515,7 @@
 
                                 <button onClick={handleUpload} disabled={!file || loading || csvType === 'desconocido'}
                                     className={`w-full py-2 rounded-lg font-semibold text-white transition-all ${loading || csvType === 'desconocido' ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
-                                    style={{ background: (loading || csvType === 'desconocido') ? '#999' : 'linear-gradient(140deg, #3D008D, #ED1E79)' }}
+                                    style={{ background: (loading || csvType === 'desconocido') ? '#999' : 'linear-gradient(140deg, #64748B, #64748B)' }}
                                 >
                                     {loading ? (<><i className="fas fa-spinner fa-spin mr-2"></i>Procesando...</>)
                                              : (<><i className="fas fa-rocket mr-2"></i>Ejecutar Análisis</>)}
@@ -763,6 +763,156 @@
             );
         };
 
+        const CrudDemoSection = () => {
+            const [loading, setLoading] = useState(false);
+            const [msg, setMsg] = useState('');
+            const [total, setTotal] = useState(0);
+            const [promedioEdad, setPromedioEdad] = useState(0);
+            const [estratos, setEstratos] = useState({});
+            const [ejemplos, setEjemplos] = useState([]);
+
+            const cargarResumen = async () => {
+                try {
+                    const [rStats, rList] = await Promise.all([
+                        fetch('http://127.0.0.1:8000/encuestas/estadisticas/'),
+                        fetch('http://127.0.0.1:8000/encuestas/'),
+                    ]);
+
+                    if (!rStats.ok || !rList.ok) throw new Error('No se pudo consultar el resumen del CRUD');
+
+                    const stats = await rStats.json();
+                    const lista = await rList.json();
+                    setTotal(stats.total_encuestas || 0);
+                    setPromedioEdad(stats.promedio_edad || 0);
+                    setEstratos(stats.distribucion_por_estrato || {});
+                    setEjemplos((lista || []).slice(0, 3));
+                } catch (err) {
+                    setMsg(err.message || 'Error al consultar el CRUD');
+                }
+            };
+
+            const generarFaker = async (cantidad = 15) => {
+                setLoading(true);
+                setMsg('Generando datos fake...');
+                try {
+                    const resp = await fetch(`http://127.0.0.1:8000/encuestas/seed/${cantidad}`, { method: 'POST' });
+                    if (!resp.ok) throw new Error('No se pudieron generar datos con Faker');
+                    setMsg(`OK: se generaron ${cantidad} encuestas fake para demo.`);
+                    await cargarResumen();
+                } catch (err) {
+                    setMsg(err.message || 'Error generando Faker');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const resetDemo = async () => {
+                setLoading(true);
+                setMsg('Reseteando encuestas...');
+                try {
+                    const resp = await fetch('http://127.0.0.1:8000/encuestas/reset/', { method: 'POST' });
+                    if (!resp.ok) throw new Error('No se pudo resetear la demo');
+                    setMsg('OK: base en memoria limpiada.');
+                    await cargarResumen();
+                } catch (err) {
+                    setMsg(err.message || 'Error reseteando');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                cargarResumen();
+            }, []);
+
+            return (
+                <div className="space-y-5">
+                    <p className="text-gray-700 text-sm">
+                        Esta pestaña es para el <strong>demo académico del CRUD</strong> (RF1-RF5). No usa CNPV. Aquí Faker genera datos sintéticos para probar rápido POST/GET/estadísticas sin cargar CSV real.
+                    </p>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                        <div className="card-usta p-4">
+                            <h4 className="font-bold text-primary mb-3 flex items-center gap-2"><i className="fas fa-magic"></i> Controles Demo</h4>
+                            <div className="space-y-2">
+                                <button onClick={() => generarFaker(15)} disabled={loading} className="w-full py-2 rounded-lg text-white font-semibold" style={{ background: '#0f766e' }}>
+                                    Generar 15 con Faker
+                                </button>
+                                <button onClick={() => generarFaker(50)} disabled={loading} className="w-full py-2 rounded-lg text-white font-semibold" style={{ background: '#1d4ed8' }}>
+                                    Generar 50 con Faker
+                                </button>
+                                <button onClick={resetDemo} disabled={loading} className="w-full py-2 rounded-lg text-white font-semibold" style={{ background: '#991b1b' }}>
+                                    Reset demo
+                                </button>
+                                <button onClick={cargarResumen} disabled={loading} className="w-full py-2 rounded-lg border border-gray-300 font-semibold text-gray-700 bg-white">
+                                    Refrescar resumen
+                                </button>
+                            </div>
+                            {msg && <p className="text-xs mt-3 text-gray-600">{msg}</p>}
+                        </div>
+
+                        <div className="card-usta p-4">
+                            <h4 className="font-bold text-secondary mb-3 flex items-center gap-2"><i className="fas fa-chart-pie"></i> Estado CRUD</h4>
+                            <div className="grid grid-cols-2 gap-2 mb-3">
+                                <div className="bg-blue-50 border border-blue-200 rounded p-2 text-center">
+                                    <p className="text-xs text-blue-700">Total encuestas</p>
+                                    <p className="font-bold text-blue-900 text-lg">{total}</p>
+                                </div>
+                                <div className="bg-green-50 border border-green-200 rounded p-2 text-center">
+                                    <p className="text-xs text-green-700">Promedio edad</p>
+                                    <p className="font-bold text-green-900 text-lg">{promedioEdad}</p>
+                                </div>
+                            </div>
+                            <div className="text-xs">
+                                <p className="font-semibold text-gray-700 mb-1">Distribución por estrato</p>
+                                <div className="bg-gray-50 border border-gray-200 rounded p-2 max-h-24 overflow-y-auto">
+                                    {Object.keys(estratos).length === 0 && <p className="text-gray-500">Sin datos aún.</p>}
+                                    {Object.entries(estratos).map(([k, v]) => (
+                                        <div key={k} className="flex justify-between border-b border-gray-100 last:border-0 py-0.5">
+                                            <span>Estrato {k}</span><span className="font-semibold">{v}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card-usta p-4">
+                        <h4 className="font-bold mb-2 text-navy flex items-center gap-2"><i className="fas fa-list"></i> Muestra de encuestas creadas</h4>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-xs">
+                                <thead>
+                                    <tr className="border-b border-gray-200">
+                                        <th className="text-left py-1 pr-3">Nombre</th>
+                                        <th className="text-left py-1 pr-3">Edad</th>
+                                        <th className="text-left py-1 pr-3">Estrato</th>
+                                        <th className="text-left py-1 pr-3">Departamento</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {ejemplos.length === 0 && (
+                                        <tr><td colSpan="4" className="py-2 text-gray-500">No hay encuestas; usa Faker para generar demo.</td></tr>
+                                    )}
+                                    {ejemplos.map((e, i) => (
+                                        <tr key={i} className="border-b border-gray-100">
+                                            <td className="py-1 pr-3">{e.encuestado?.nombre || '-'}</td>
+                                            <td className="py-1 pr-3">{e.encuestado?.edad || '-'}</td>
+                                            <td className="py-1 pr-3">{e.encuestado?.estrato || '-'}</td>
+                                            <td className="py-1 pr-3">{e.encuestado?.departamento || '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div className="chip-box p-4 rounded-lg text-sm text-gray-700">
+                        <strong>¿Para qué sirve Faker?</strong> Genera datos sintéticos realistas (nombres, edades, departamentos) para demostrar el CRUD y las validaciones sin depender del archivo CNPV.
+                    </div>
+                </div>
+            );
+        };
+
         const sections = [
             {
                 id: 'overview',
@@ -964,7 +1114,7 @@ http://127.0.0.1:8000/docs`}</code></pre>
                             <EndpointCard
                                 method="GET"
                                 path="/"
-                                description="Panel HTML interactivo con checklist de requisitos y KPIs."
+                                description="Panel HTML interactivo con KPIs y demo en vivo."
                                 status="done"
                             />
                         </div>
@@ -1273,50 +1423,11 @@ async def listar_encuestas(request: Request):
                 )
             },
             {
-                id: 'checklist',
-                title: '✔️ Checklist de Requisitos',
-                icon: Icons.CheckSquare,
+                id: 'crud-demo',
+                title: '🎭 Demo CRUD + Faker',
+                icon: Icons.Server,
                 content: (
-                    <div className="space-y-6">
-                        <div className="grid md:grid-cols-2 gap-4">
-                            <div>
-                                <h4 className="font-bold text-sm mb-3 text-primary">📋 Requisitos Funcionales (RF)</h4>
-                                <ChecklistItem completed={true} title="RF1" description="3+ modelos anidados con Union, Optional, List" />
-                                <ChecklistItem completed={true} title="RF2" description="Validadores before/after + departamentos reales" />
-                                <ChecklistItem completed={true} title="RF3" description="CRUD completo + estadísticas con HTTP correctos" />
-                                <ChecklistItem completed={true} title="RF4" description="Manejador 422 personalizado con logging" />
-                                <ChecklistItem completed={true} title="RF5" description="Endpoint async con conceptos ASGI explicados" />
-                            </div>
-                            <div>
-                                <h4 className="font-bold text-sm mb-3 text-secondary">🔧 Requisitos Técnicos (RT)</h4>
-                                <ChecklistItem completed={true} title="RT1" description="Entorno virtual (.venv) + requirements.txt" />
-                                <ChecklistItem completed={true} title="RT2" description="Git con develop + main, 6+ commits" />
-                                <ChecklistItem completed={true} title="RT3" description="Modular: main, models, validators, db, utils" />
-                                <ChecklistItem completed={true} title="RT4" description="Swagger UI (/docs) + Redoc (/redoc)" />
-                                <ChecklistItem completed={true} title="RT5" description="Decorador @log_request aplicado" />
-                            </div>
-                        </div>
-
-                        <div className="grid md:grid-cols-2 gap-4">
-                            <div>
-                                <h4 className="font-bold text-sm mb-3 text-gold">🎁 Bonuses</h4>
-                                <ChecklistItem completed={true} title="Tests" description="9 pruebas unitarias con pytest" />
-                                <ChecklistItem completed={true} title="HTML Panel" description="Interfaz en GET / con KPIs" />
-                                <ChecklistItem completed={true} title="CNPV Real" description="Análisis de datos reales sin inventar campos" />
-                            </div>
-                            <div>
-                                <h4 className="font-bold text-sm mb-3 text-navy">📊 Métricas</h4>
-                                <div className="card-usta p-3 text-center">
-                                    <div className="text-2xl font-bold text-primary">5/5</div>
-                                    <p className="text-xs text-gray-600">RF completados</p>
-                                </div>
-                                <div className="card-usta p-3 text-center mt-2">
-                                    <div className="text-2xl font-bold text-secondary">5/5</div>
-                                    <p className="text-xs text-gray-600">RT completados</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <CrudDemoSection />
                 )
             },
             {
@@ -1408,7 +1519,7 @@ pip install fastapi uvicorn pydantic python-multipart pytest numpy`}</code></pre
                     <button
                         onClick={() => setSidebarOpen(!sidebarOpen)}
                         className="fixed top-4 left-4 z-50 p-2.5 rounded-full shadow-lg text-white transition-all lg:hidden"
-                        style={{ background: 'linear-gradient(140deg, #3D008D, #ED1E79)' }}
+                        style={{ background: 'linear-gradient(140deg, #64748B, #64748B)' }}
                     >
                         <i className={`fas ${sidebarOpen ? 'fa-times' : 'fa-bars'}`}></i>
                     </button>
@@ -1433,7 +1544,7 @@ pip install fastapi uvicorn pydantic python-multipart pytest numpy`}</code></pre
                                     key={sec.id}
                                     onClick={() => setActiveIndex(idx)}
                                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${activeIndex === idx ? 'text-white font-semibold' : 'text-white/60 hover:text-white'}`}
-                                    style={activeIndex === idx ? { background: 'linear-gradient(140deg, #3D008D, #ED1E79)' } : {}}
+                                    style={activeIndex === idx ? { background: 'linear-gradient(140deg, #64748B, #64748B)' } : {}}
                                 >
                                     {sec.title}
                                 </button>
@@ -1470,7 +1581,7 @@ pip install fastapi uvicorn pydantic python-multipart pytest numpy`}</code></pre
                                 disabled={activeIndex === 0}
                                 onClick={() => setActiveIndex(prev => prev - 1)}
                                 className="px-4 py-2 rounded-lg text-white font-semibold transition-all disabled:opacity-30 hover:scale-105"
-                                style={{ background: activeIndex > 0 ? 'linear-gradient(140deg, #3D008D, #ED1E79)' : 'gray' }}
+                                style={{ background: activeIndex > 0 ? 'linear-gradient(140deg, #64748B, #64748B)' : 'gray' }}
                             >
                                 ← Anterior
                             </button>
@@ -1479,7 +1590,7 @@ pip install fastapi uvicorn pydantic python-multipart pytest numpy`}</code></pre
                                 disabled={activeIndex === sections.length - 1}
                                 onClick={() => setActiveIndex(prev => prev + 1)}
                                 className="px-4 py-2 rounded-lg text-white font-semibold transition-all disabled:opacity-30 hover:scale-105"
-                                style={{ background: activeIndex < sections.length - 1 ? 'linear-gradient(140deg, #3D008D, #ED1E79)' : 'gray' }}
+                                style={{ background: activeIndex < sections.length - 1 ? 'linear-gradient(140deg, #64748B, #64748B)' : 'gray' }}
                             >
                                 Siguiente →
                             </button>
