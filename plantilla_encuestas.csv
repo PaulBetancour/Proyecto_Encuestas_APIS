@@ -1,0 +1,4 @@
+nombre,edad,estrato,departamento,q1_tipo,q1_valor,q1_comentario,q2_tipo,q2_valor,q2_comentario,q3_tipo,q3_valor,q3_comentario
+Ana Perez,28,3,Antioquia,likert,5,Excelente,porcentaje,92.4,,texto,Servicio agil,Sin observaciones
+Carlos Rojas,41,2,Cundinamarca,likert,4,Bueno,porcentaje,76.1,,texto,Puede mejorar,
+Laura Gomez,35,4,Valle del Cauca,likert,3,Regular,porcentaje,61.0,,texto,Atencion correcta,

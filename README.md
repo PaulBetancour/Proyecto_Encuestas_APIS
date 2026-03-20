@@ -45,6 +45,7 @@ uvicorn main:app --reload
 Documentacion interactiva:
 - Swagger UI: http://127.0.0.1:8000/docs
 - Redoc: http://127.0.0.1:8000/redoc
+- Panel de demostracion (HTML): http://127.0.0.1:8000/
 
 ## 5) Endpoints requeridos (RF3)
 - `POST /encuestas/` -> registra encuesta (201)
@@ -56,8 +57,24 @@ Documentacion interactiva:
 
 Extra util para demo:
 - `POST /encuestas/seed/{cantidad}` -> genera datos con Faker
+- `POST /encuestas/csv/` -> carga un archivo CSV y crea encuestas en memoria
 
-## 6) Ejemplo de payload
+## 6) Cargar CSV para demo
+
+Sube el archivo desde Swagger (`/docs`) usando `POST /encuestas/csv/`.
+
+Formato recomendado por fila:
+- `nombre,edad,estrato,departamento`
+- Respuestas por pregunta: `q1_tipo,q1_valor,q1_comentario`, `q2_tipo,q2_valor,q2_comentario`, etc.
+
+Ejemplo de cabecera:
+
+```csv
+nombre,edad,estrato,departamento,q1_tipo,q1_valor,q1_comentario,q2_tipo,q2_valor,q2_comentario,q3_tipo,q3_valor,q3_comentario
+Ana Perez,28,3,Antioquia,likert,5,Excelente,porcentaje,92.4,,texto,Servicio agil,Sin observaciones
+```
+
+## 7) Ejemplo de payload
 
 ```json
 {
@@ -75,13 +92,13 @@ Extra util para demo:
 }
 ```
 
-## 7) Pruebas (bonus)
+## 8) Pruebas (bonus)
 
 ```bash
 pytest -q
 ```
 
-## 8) Requisitos de Git (RT2)
+## 9) Requisitos de Git (RT2)
 Sugerencia de flujo para entrega:
 1. `main` + rama `develop`.
 2. Minimo 5 commits significativos.
@@ -94,7 +111,7 @@ Secuencia recomendada de commits:
 4. Handler 422 + decorador + Faker seed.
 5. Tests y README final.
 
-## 9) Sustentacion (guia rapida)
+## 10) Sustentacion (guia rapida)
 Preparar explicacion corta de:
 - Por que usar modelos anidados.
 - Diferencia `mode='before'` vs `mode='after'`.
