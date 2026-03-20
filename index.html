@@ -332,67 +332,107 @@
             );
         };
 
+        // Detecta tipo de CSV leyendo el encabezado (primera línea) con FileReader
+        const detectCsvType = (f) => new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const firstLine = e.target.result.split('\n')[0] || '';
+                const headers = firstLine.split(',').map(h => h.trim().replace(/^"|"$/g, '').toUpperCase());
+                const cnpvCols = ['U_DPTO', 'VA1_ESTRATO', 'COD_ENCUESTAS', 'U_VIVIENDA'];
+                const encCols  = ['NOMBRE', 'EDAD', 'ESTRATO', 'DEPARTAMENTO'];
+                if (cnpvCols.every(c => headers.includes(c))) return resolve('cnpv');
+                if (encCols.every(c => headers.includes(c)))  return resolve('encuestas');
+                resolve('desconocido');
+            };
+            reader.readAsText(f.slice(0, 512)); // solo primer bloque
+        });
+
         const LiveTestSection = () => {
             const [file, setFile] = useState(null);
+            const [csvType, setCsvType] = useState(null); // 'cnpv' | 'encuestas' | 'desconocido'
             const [loading, setLoading] = useState(false);
             const [result, setResult] = useState(null);
             const [error, setError] = useState(null);
             const [maxFilas, setMaxFilas] = useState(5000);
 
-            const handleFileChange = (e) => {
-                setFile(e.target.files[0]);
+            const handleFileChange = async (e) => {
+                const f = e.target.files[0];
+                setFile(f);
                 setError(null);
+                setResult(null);
+                setCsvType(null);
+                if (f) {
+                    const tipo = await detectCsvType(f);
+                    setCsvType(tipo);
+                    if (tipo === 'desconocido') {
+                        setError('CSV no reconocido. Use CNPV2018_1VIV_A2_11.CSV o encuestas_demo.csv');
+                    }
+                }
+            };
+
+            const formatDetail = (detail) => {
+                if (typeof detail === 'string') return detail;
+                if (detail && detail.mensaje) {
+                    const faltantes = detail.faltantes ? ` (faltan: ${detail.faltantes.join(', ')})` : '';
+                    return detail.mensaje + faltantes;
+                }
+                return JSON.stringify(detail);
             };
 
             const handleUpload = async () => {
-                if (!file) {
-                    setError('Por favor seleccione un archivo CSV');
-                    return;
-                }
+                if (!file) { setError('Por favor seleccione un archivo CSV'); return; }
+                if (csvType === 'desconocido') { setError('Archivo no soportado. Use CNPV o encuestas_demo.'); return; }
 
                 setLoading(true);
                 setError(null);
                 setResult(null);
 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s máximo
+                const timeoutId = setTimeout(() => controller.abort(), 90000);
 
                 try {
                     const formData = new FormData();
                     formData.append('file', file);
-                    formData.append('max_filas', maxFilas);
 
-                    const response = await fetch('http://127.0.0.1:8000/datasets/cnpv/analizar/?max_filas=' + maxFilas, {
-                        method: 'POST',
-                        body: formData,
-                        signal: controller.signal,
-                    });
+                    let url;
+                    if (csvType === 'cnpv') {
+                        url = 'http://127.0.0.1:8000/datasets/cnpv/analizar/?max_filas=' + maxFilas;
+                    } else {
+                        url = 'http://127.0.0.1:8000/encuestas/csv/';
+                    }
+
+                    const response = await fetch(url, { method: 'POST', body: formData, signal: controller.signal });
                     clearTimeout(timeoutId);
 
                     if (!response.ok) {
                         const errorData = await response.json();
-                        throw new Error(errorData.detail || 'Error en la API');
+                        throw new Error(formatDetail(errorData.detail) || 'Error en la API');
                     }
 
                     const data = await response.json();
-                    setResult(data);
+                    setResult({ ...data, _tipo: csvType });
                 } catch (err) {
                     clearTimeout(timeoutId);
                     if (err.name === 'AbortError') {
-                        setError('Tiempo de espera agotado (90s). Intente con menos filas (ej: 1000).');
+                        setError('Tiempo agotado (90s). Intente con menos filas (ej: 1000).');
                     } else {
-                        setError(err.message || 'Error al procesar el archivo. ¿Está corriendo el servidor en el puerto 8000?');
+                        setError(err.message || '¿Está corriendo el servidor en http://127.0.0.1:8000?');
                     }
-                    console.error('Error:', err);
                 } finally {
                     setLoading(false);
                 }
             };
 
+            const typeBadge = {
+                cnpv:        { label: '📊 CSV CNPV detectado',       cls: 'bg-blue-50 border-blue-300 text-blue-800' },
+                encuestas:   { label: '📋 CSV Encuestas detectado',  cls: 'bg-green-50 border-green-300 text-green-800' },
+                desconocido: { label: '⚠️ Formato no reconocido',    cls: 'bg-yellow-50 border-yellow-300 text-yellow-800' },
+            };
+
             return (
                 <div className="space-y-6">
                     <p className="text-gray-700">
-                        Suba su archivo CNPV y ejecute el análisis en tiempo real. Los datos se procesarán y validarán automáticamente.
+                        Suba <strong>cualquier CSV compatible</strong>: <code className="bg-gray-100 px-1 rounded text-xs">CNPV2018_1VIV_A2_11.CSV</code> o <code className="bg-gray-100 px-1 rounded text-xs">encuestas_demo.csv</code>. El tipo se detecta automáticamente.
                     </p>
 
                     <div className="grid md:grid-cols-2 gap-6">
@@ -406,52 +446,42 @@
                                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-secondary transition-colors cursor-pointer"
                                     onClick={() => document.getElementById('file-input').click()}
                                 >
-                                    <input
-                                        id="file-input"
-                                        type="file"
-                                        accept=".csv"
-                                        onChange={handleFileChange}
-                                        style={{ display: 'none' }}
-                                    />
+                                    <input id="file-input" type="file" accept=".csv,.CSV"
+                                        onChange={handleFileChange} style={{ display: 'none' }} />
                                     <i className="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
                                     <p className="text-sm font-semibold text-gray-700">
                                         {file ? file.name : 'Haga clic o arrastre un CSV aquí'}
                                     </p>
-                                    <p className="text-xs text-gray-500 mt-1">Máximo: CNPV2018_1VIV_A2_11.CSV</p>
+                                    <p className="text-xs text-gray-500 mt-1">CNPV2018_1VIV_A2_11.CSV · encuestas_demo.csv</p>
                                 </div>
 
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                        <i className="fas fa-sliders-h"></i> Máximo de filas a procesar:
-                                    </label>
-                                    <input
-                                        type="number"
-                                        value={maxFilas}
-                                        onChange={(e) => setMaxFilas(parseInt(e.target.value))}
-                                        min="100"
-                                        step="1000"
-                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                                    />
-                                    <p className="text-xs text-gray-500 mt-1">Sugerencia: usar 1000–5000 para demo rápida. El proceso puede tardar ~30-60 s según el tamaño.</p>
-                                </div>
+                                {csvType && (
+                                    <div className={`border rounded-lg px-3 py-2 text-sm font-semibold ${typeBadge[csvType].cls}`}>
+                                        {typeBadge[csvType].label}
+                                        {csvType === 'cnpv' && <span className="font-normal ml-1">→ /datasets/cnpv/analizar/</span>}
+                                        {csvType === 'encuestas' && <span className="font-normal ml-1">→ /encuestas/csv/</span>}
+                                    </div>
+                                )}
 
-                                <button
-                                    onClick={handleUpload}
-                                    disabled={!file || loading}
-                                    className={`w-full py-2 rounded-lg font-semibold text-white transition-all ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
-                                    style={{ background: loading ? '#999' : 'linear-gradient(140deg, #3D008D, #ED1E79)' }}
+                                {csvType === 'cnpv' && (
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                            <i className="fas fa-sliders-h"></i> Máx. filas a procesar:
+                                        </label>
+                                        <input type="number" value={maxFilas}
+                                            onChange={(e) => setMaxFilas(parseInt(e.target.value) || 1000)}
+                                            min="100" step="1000"
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                                        <p className="text-xs text-gray-500 mt-1">1 000–5 000 para demo rápida.</p>
+                                    </div>
+                                )}
+
+                                <button onClick={handleUpload} disabled={!file || loading || csvType === 'desconocido'}
+                                    className={`w-full py-2 rounded-lg font-semibold text-white transition-all ${loading || csvType === 'desconocido' ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+                                    style={{ background: (loading || csvType === 'desconocido') ? '#999' : 'linear-gradient(140deg, #3D008D, #ED1E79)' }}
                                 >
-                                    {loading ? (
-                                        <>
-                                            <i className="fas fa-spinner fa-spin mr-2"></i>
-                                            Procesando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <i className="fas fa-rocket mr-2"></i>
-                                            Ejecutar Análisis
-                                        </>
-                                    )}
+                                    {loading ? (<><i className="fas fa-spinner fa-spin mr-2"></i>Procesando...</>)
+                                             : (<><i className="fas fa-rocket mr-2"></i>Ejecutar Análisis</>)}
                                 </button>
                             </div>
                         </div>
@@ -464,61 +494,78 @@
 
                             {error && (
                                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
-                                    <i className="fas fa-exclamation-circle mr-2"></i>
-                                    {error}
+                                    <i className="fas fa-exclamation-circle mr-2"></i>{error}
                                 </div>
                             )}
 
-                            {result ? (
+                            {result && result._tipo === 'cnpv' && (
                                 <div className="space-y-3 text-sm">
-                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                                        <p className="font-semibold text-blue-900">
-                                            <i className="fas fa-home mr-2"></i>
-                                            Filas Procesadas: <span className="text-lg">{result.filas_procesadas}</span>
-                                        </p>
-                                    </div>
-
-                                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                                        <p className="font-semibold text-green-900">
-                                            <i className="fas fa-check-circle mr-2"></i>
-                                            Filas Válidas: <span className="text-lg">{result.filas_validas}</span>
-                                        </p>
-                                    </div>
-
-                                    <div className="mt-4">
-                                        <h5 className="font-semibold text-gray-700 mb-2">
-                                            <i className="fas fa-map-marker-alt mr-2"></i>
-                                            Distribución por Departamento
-                                        </h5>
-                                        <div className="max-h-48 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200">
-                                            {result.distribucion_u_dpto && Object.entries(result.distribucion_u_dpto).slice(0, 10).map(([depto, count]) => (
-                                                <div key={depto} className="flex justify-between text-xs py-1 border-b border-gray-200 last:border-0">
-                                                    <span className="text-gray-700">{depto}</span>
-                                                    <span className="font-semibold text-primary">{count}</span>
-                                                </div>
-                                            ))}
-                                            {Object.keys(result.distribucion_u_dpto || {}).length > 10 && (
-                                                <p className="text-xs text-gray-500 italic p-1">... y más departamentos</p>
-                                            )}
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-blue-600">Filas procesadas</p>
+                                            <p className="font-bold text-blue-900 text-lg">{(result.filas_procesadas||0).toLocaleString()}</p>
+                                        </div>
+                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-green-600">Válidas</p>
+                                            <p className="font-bold text-green-900 text-lg">{(result.filas_validas||0).toLocaleString()}</p>
                                         </div>
                                     </div>
-
-                                    <div className="mt-4">
-                                        <h5 className="font-semibold text-gray-700 mb-2">
-                                            <i className="fas fa-layer-group mr-2"></i>
-                                            Distribución por Estrato
-                                        </h5>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            {result.distribucion_estrato && Object.entries(result.distribucion_estrato).sort().map(([estrato, count]) => (
-                                                <div key={estrato} className="bg-purple-50 border border-purple-200 rounded p-2 text-center">
-                                                    <p className="text-xs text-gray-600">Estrato {estrato}</p>
-                                                    <p className="font-bold text-purple-700">{count}</p>
+                                    <div>
+                                        <h5 className="font-semibold text-gray-700 mb-1"><i className="fas fa-map-marker-alt mr-1"></i>Top Dptos.</h5>
+                                        <div className="max-h-40 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200 text-xs">
+                                            {Object.entries(result.distribucion_u_dpto || {}).slice(0, 12).map(([d, c]) => (
+                                                <div key={d} className="flex justify-between py-0.5 border-b border-gray-100 last:border-0">
+                                                    <span>{d}</span><span className="font-bold text-primary">{c}</span>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
+                                    <div>
+                                        <h5 className="font-semibold text-gray-700 mb-1"><i className="fas fa-layer-group mr-1"></i>Por Estrato</h5>
+                                        <div className="grid grid-cols-3 gap-1">
+                                            {Object.entries(result.distribucion_estrato || {}).sort().map(([e, c]) => (
+                                                <div key={e} className="bg-purple-50 border border-purple-200 rounded p-1 text-center text-xs">
+                                                    <p className="text-gray-500">Est. {e}</p><p className="font-bold text-purple-700">{c}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    {result.filas_invalidas > 0 && (
+                                        <p className="text-xs text-orange-600"><i className="fas fa-exclamation-triangle mr-1"></i>{result.filas_invalidas} filas con errores</p>
+                                    )}
                                 </div>
-                            ) : (
+                            )}
+
+                            {result && result._tipo === 'encuestas' && (
+                                <div className="space-y-3 text-sm">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-green-600">Encuestas creadas</p>
+                                            <p className="font-bold text-green-900 text-lg">{result.encuestas_creadas}</p>
+                                        </div>
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-blue-600">Filas leídas</p>
+                                            <p className="font-bold text-blue-900 text-lg">{result.total_filas_leidas}</p>
+                                        </div>
+                                    </div>
+                                    {result.total_filas_con_error > 0 && (
+                                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-xs">
+                                            <p className="font-semibold text-orange-700 mb-1"><i className="fas fa-exclamation-triangle mr-1"></i>{result.total_filas_con_error} filas con error:</p>
+                                            {(result.errores || []).slice(0, 3).map((e, i) => (
+                                                <p key={i} className="text-orange-600">Fila {e.fila}: {e.error}</p>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {result.total_filas_con_error === 0 && (
+                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700">
+                                            <i className="fas fa-check-circle mr-1"></i>Todas las filas se importaron sin errores.
+                                        </div>
+                                    )}
+                                    <p className="text-xs text-gray-500">Las encuestas están ahora en memoria. Use GET /encuestas/ para consultarlas.</p>
+                                </div>
+                            )}
+
+                            {!result && !error && (
                                 <div className="text-center py-8">
                                     <i className="fas fa-chart-line text-4xl text-gray-300 mb-2"></i>
                                     <p className="text-gray-500 text-sm">Los resultados aparecerán aquí</p>
@@ -529,23 +576,20 @@
 
                     <div className="chip-box p-4 rounded-lg">
                         <h5 className="font-bold text-primary mb-2 flex items-center gap-2">
-                            <i className="fas fa-info-circle"></i> Cómo funciona
+                            <i className="fas fa-info-circle"></i> Archivos compatibles
                         </h5>
-                        <ol className="text-sm space-y-1 list-decimal pl-5 text-gray-700">
-                            <li>Seleccione el archivo <code className="bg-gray-100 px-1 rounded text-xs">CNPV2018_1VIV_A2_11.CSV</code></li>
-                            <li>Ajuste el máximo de filas (recomendado: 50000 para demo rápida)</li>
-                            <li>Click en "Ejecutar Análisis"</li>
-                            <li>El servidor validará y procesará el archivo en tiempo real</li>
-                            <li>Vea la distribución por departamento y estrato</li>
-                        </ol>
-                    </div>
-
-                    <div className="chip-box p-4 rounded-lg">
-                        <h5 className="font-bold text-secondary mb-2 flex items-center gap-2">
-                            <i className="fas fa-server"></i> Endpoint Usado
-                        </h5>
-                        <p className="text-sm text-gray-700 font-mono">POST /datasets/cnpv/analizar/?max_filas=50000</p>
-                        <p className="text-xs text-gray-600 mt-2">Este endpoint demuestra validación Pydantic y procesamiento de datos reales sin inventar campos.</p>
+                        <div className="grid md:grid-cols-2 gap-4 text-sm text-gray-700">
+                            <div>
+                                <p className="font-semibold text-blue-700 mb-1">📊 CSV CNPV</p>
+                                <p className="text-xs">Columnas: <code className="bg-gray-100 px-1 rounded">U_DPTO, VA1_ESTRATO, COD_ENCUESTAS, U_VIVIENDA</code></p>
+                                <p className="text-xs text-gray-500 mt-1">→ Endpoint: <code>POST /datasets/cnpv/analizar/</code></p>
+                            </div>
+                            <div>
+                                <p className="font-semibold text-green-700 mb-1">📋 CSV Encuestas</p>
+                                <p className="text-xs">Columnas: <code className="bg-gray-100 px-1 rounded">nombre, edad, estrato, departamento</code></p>
+                                <p className="text-xs text-gray-500 mt-1">→ Endpoint: <code>POST /encuestas/csv/</code></p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             );
