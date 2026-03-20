@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="API de Gestión de Encuestas Poblacionales - Proyecto FastAPI con Pydantic y validación de datos estadísticos.">
+    <title>API de Encuestas Poblacionales</title>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+    <!-- Babel para JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Montserrat', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace'],
+                    },
+                    colors: {
+                        primary: '#3D008D',
+                        secondary: '#ED1E79',
+                        navy: '#001A4D',
+                        gold: '#FDB913',
+                        bg: '#F8FAFC',
+                        surface: '#FFFFFF',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: #F8FAFC;
+            color: #1E293B;
+            scroll-behavior: smooth;
+        }
+
+        code, pre {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .gradient-usta {
+            background: linear-gradient(140deg, #3D008D 0%, #ED1E79 100%);
+        }
+
+        .header-usta {
+            background: linear-gradient(180deg, #001A4D 0%, #002868 100%);
+        }
+
+        .card-usta {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+        }
+
+        .card-usta:hover {
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.12);
+            transform: translateY(-4px);
+        }
+
+        .chip-box {
+            background: linear-gradient(135deg, rgba(61, 0, 141, 0.08) 0%, rgba(237, 30, 121, 0.08) 100%);
+            border: 1px solid rgba(61, 0, 141, 0.2);
+        }
+
+        .nav-item.active {
+            background: linear-gradient(90deg, rgba(61, 0, 141, 0.15) 0%, transparent 100%);
+            border-left: 4px solid #ED1E79;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #3D008D, #ED1E79);
+            border-radius: 4px;
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .code-block {
+            background: #1e1e1e;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #333;
+        }
+
+        .code-block pre {
+            margin: 0;
+            padding: 16px;
+            overflow-x: auto;
+            color: #d4d4d4;
+            line-height: 1.5;
+        }
+
+        .syntax-kwd {
+            color: #569cd6;
+        }
+
+        .syntax-str {
+            color: #ce9178;
+        }
+
+        .syntax-com {
+            color: #6a9955;
+        }
+
+        .syntax-func {
+            color: #dcdcaa;
+        }
+
+        .syntax-num {
+            color: #b5cea8;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-done {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+
+        .status-pending {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const Icons = {
+            BookOpen: ({ size = 24, className = "" }) => (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                </svg>
+            ),
+            Server: ({ size = 24, className = "" }) => (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                    <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                </svg>
+            ),
+            Database: ({ size = 24, className = "" }) => (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s 9-1.34 9-3V5"></path>
+                </svg>
+            ),
+            CheckSquare: ({ size = 24, className = "" }) => (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+                    <polyline points="9 11 12 14 22 4"></polyline>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                </svg>
+            ),
+            Code: ({ size = 24, className = "" }) => (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                </svg>
+            ),
+            ChevronRight: ({ size = 24, className = "" }) => (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            ),
+            ChevronLeft: ({ size = 24, className = "" }) => (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            ),
+            ChevronDown: ({ size = 24, className = "" }) => (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            ),
+        };
+
+        const CodeBlock = ({ title, code }) => {
+            const [copied, setCopied] = useState(false);
+
+            const handleCopy = () => {
+                navigator.clipboard.writeText(code);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            };
+
+            return (
+                <div className="code-block my-4">
+                    <div className="bg-gray-800 px-4 py-3 flex justify-between items-center border-b border-gray-700">
+                        <span className="text-xs text-gray-400 font-mono flex items-center gap-2">
+                            <i className="fab fa-python text-yellow-400"></i>{title}
+                        </span>
+                        <button
+                            onClick={handleCopy}
+                            className="text-xs text-gray-400 hover:text-white transition-colors flex items-center gap-2"
+                        >
+                            {copied ? (
+                                <>
+                                    <i className="fas fa-check text-green-400"></i>
+                                    <span className="text-green-400">¡Copiado!</span>
+                                </>
+                            ) : (
+                                <>
+                                    <i className="far fa-clipboard"></i>
+                                    <span>Copiar</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                    <pre className="text-sm"><code dangerouslySetInnerHTML={{__html: code}} /></pre>
+                </div>
+            );
+        };
+
+        const SectionHeader = ({ title, icon: Icon }) => (
+            <div className="flex items-center gap-3 mb-6 border-b border-gray-200 pb-4">
+                <div className="gradient-usta p-3 rounded-xl shadow-md text-white">
+                    {Icon && <Icon size={24} />}
+                </div>
+                <h2 className="text-3xl font-bold text-gray-900">{title}</h2>
+            </div>
+        );
+
+        const EndpointCard = ({ method, path, description, status }) => {
+            const colors = {
+                GET: 'bg-blue-100 text-blue-700',
+                POST: 'bg-green-100 text-green-700',
+                PUT: 'bg-yellow-100 text-yellow-700',
+                DELETE: 'bg-red-100 text-red-700',
+            };
+
+            return (
+                <div className="card-usta p-4 mb-3">
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className={`${colors[method]} px-2 py-1 rounded text-xs font-bold`}>{method}</span>
+                                <code className="text-sm font-mono text-primary">{path}</code>
+                            </div>
+                            <p className="text-sm text-gray-600">{description}</p>
+                        </div>
+                        {status && (
+                            <span className={`status-badge ${status === 'done' ? 'status-done' : 'status-pending'}`}>
+                                {status === 'done' ? '✅ Hecho' : '⏳ Pending'}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const ChecklistItem = ({ completed, title, description }) => (
+            <div className="flex items-start gap-3 p-3 mb-2 rounded-lg hover:bg-gray-50 transition-colors">
+                <div className={`flex-shrink-0 w-6 h-6 rounded border-2 flex items-center justify-center text-sm ${completed ? 'bg-green-100 border-green-500' : 'border-gray-300'}`}>
+                    {completed && <i className="fas fa-check text-green-600"></i>}
+                </div>
+                <div className="flex-1">
+                    <p className={`font-semibold text-sm ${completed ? 'text-gray-600 line-through' : 'text-gray-900'}`}>{title}</p>
+                    {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+                </div>
+            </div>
+        );
+
+        const Accordion = ({ title, children, icon }) => {
+            const [open, setOpen] = useState(false);
+
+            return (
+                <div className="card-usta mb-3 overflow-hidden">
+                    <button
+                        onClick={() => setOpen(!open)}
+                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                        <div className="flex items-center gap-3 text-left flex-1">
+                            {icon && <span className="text-xl">{icon}</span>}
+                            <span className="font-semibold text-gray-900">{title}</span>
+                        </div>
+                        <Icons.ChevronDown size={20} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+                    </button>
+                    {open && <div className="border-t border-gray-200 px-4 py-3 bg-gray-50/50 text-sm text-gray-700">{children}</div>}
+                </div>
+            );
+        };
+
+        const LiveTestSection = () => {
+            const [file, setFile] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [result, setResult] = useState(null);
+            const [error, setError] = useState(null);
+            const [maxFilas, setMaxFilas] = useState(5000);
+
+            const handleFileChange = (e) => {
+                setFile(e.target.files[0]);
+                setError(null);
+            };
+
+            const handleUpload = async () => {
+                if (!file) {
+                    setError('Por favor seleccione un archivo CSV');
+                    return;
+                }
+
+                setLoading(true);
+                setError(null);
+                setResult(null);
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s máximo
+
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('max_filas', maxFilas);
+
+                    const response = await fetch('http://127.0.0.1:8000/datasets/cnpv/analizar/?max_filas=' + maxFilas, {
+                        method: 'POST',
+                        body: formData,
+                        signal: controller.signal,
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Error en la API');
+                    }
+
+                    const data = await response.json();
+                    setResult(data);
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    if (err.name === 'AbortError') {
+                        setError('Tiempo de espera agotado (90s). Intente con menos filas (ej: 1000).');
+                    } else {
+                        setError(err.message || 'Error al procesar el archivo. ¿Está corriendo el servidor en el puerto 8000?');
+                    }
+                    console.error('Error:', err);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <p className="text-gray-700">
+                        Suba su archivo CNPV y ejecute el análisis en tiempo real. Los datos se procesarán y validarán automáticamente.
+                    </p>
+
+                    <div className="grid md:grid-cols-2 gap-6">
+                        {/* Panel de Upload */}
+                        <div className="card-usta p-6">
+                            <h4 className="font-bold text-lg mb-4 text-primary flex items-center gap-2">
+                                <i className="fas fa-file-upload"></i> Cargar Archivo
+                            </h4>
+
+                            <div className="space-y-4">
+                                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-secondary transition-colors cursor-pointer"
+                                    onClick={() => document.getElementById('file-input').click()}
+                                >
+                                    <input
+                                        id="file-input"
+                                        type="file"
+                                        accept=".csv"
+                                        onChange={handleFileChange}
+                                        style={{ display: 'none' }}
+                                    />
+                                    <i className="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
+                                    <p className="text-sm font-semibold text-gray-700">
+                                        {file ? file.name : 'Haga clic o arrastre un CSV aquí'}
+                                    </p>
+                                    <p className="text-xs text-gray-500 mt-1">Máximo: CNPV2018_1VIV_A2_11.CSV</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        <i className="fas fa-sliders-h"></i> Máximo de filas a procesar:
+                                    </label>
+                                    <input
+                                        type="number"
+                                        value={maxFilas}
+                                        onChange={(e) => setMaxFilas(parseInt(e.target.value))}
+                                        min="100"
+                                        step="1000"
+                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Sugerencia: usar 1000–5000 para demo rápida. El proceso puede tardar ~30-60 s según el tamaño.</p>
+                                </div>
+
+                                <button
+                                    onClick={handleUpload}
+                                    disabled={!file || loading}
+                                    className={`w-full py-2 rounded-lg font-semibold text-white transition-all ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+                                    style={{ background: loading ? '#999' : 'linear-gradient(140deg, #3D008D, #ED1E79)' }}
+                                >
+                                    {loading ? (
+                                        <>
+                                            <i className="fas fa-spinner fa-spin mr-2"></i>
+                                            Procesando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="fas fa-rocket mr-2"></i>
+                                            Ejecutar Análisis
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Panel de Resultados */}
+                        <div className="card-usta p-6">
+                            <h4 className="font-bold text-lg mb-4 text-secondary flex items-center gap-2">
+                                <i className="fas fa-chart-bar"></i> Resultados
+                            </h4>
+
+                            {error && (
+                                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
+                                    <i className="fas fa-exclamation-circle mr-2"></i>
+                                    {error}
+                                </div>
+                            )}
+
+                            {result ? (
+                                <div className="space-y-3 text-sm">
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                        <p className="font-semibold text-blue-900">
+                                            <i className="fas fa-home mr-2"></i>
+                                            Filas Procesadas: <span className="text-lg">{result.filas_procesadas}</span>
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                                        <p className="font-semibold text-green-900">
+                                            <i className="fas fa-check-circle mr-2"></i>
+                                            Filas Válidas: <span className="text-lg">{result.filas_validas}</span>
+                                        </p>
+                                    </div>
+
+                                    <div className="mt-4">
+                                        <h5 className="font-semibold text-gray-700 mb-2">
+                                            <i className="fas fa-map-marker-alt mr-2"></i>
+                                            Distribución por Departamento
+                                        </h5>
+                                        <div className="max-h-48 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200">
+                                            {result.distribucion_u_dpto && Object.entries(result.distribucion_u_dpto).slice(0, 10).map(([depto, count]) => (
+                                                <div key={depto} className="flex justify-between text-xs py-1 border-b border-gray-200 last:border-0">
+                                                    <span className="text-gray-700">{depto}</span>
+                                                    <span className="font-semibold text-primary">{count}</span>
+                                                </div>
+                                            ))}
+                                            {Object.keys(result.distribucion_u_dpto || {}).length > 10 && (
+                                                <p className="text-xs text-gray-500 italic p-1">... y más departamentos</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4">
+                                        <h5 className="font-semibold text-gray-700 mb-2">
+                                            <i className="fas fa-layer-group mr-2"></i>
+                                            Distribución por Estrato
+                                        </h5>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {result.distribucion_estrato && Object.entries(result.distribucion_estrato).sort().map(([estrato, count]) => (
+                                                <div key={estrato} className="bg-purple-50 border border-purple-200 rounded p-2 text-center">
+                                                    <p className="text-xs text-gray-600">Estrato {estrato}</p>
+                                                    <p className="font-bold text-purple-700">{count}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-8">
+                                    <i className="fas fa-chart-line text-4xl text-gray-300 mb-2"></i>
+                                    <p className="text-gray-500 text-sm">Los resultados aparecerán aquí</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="chip-box p-4 rounded-lg">
+                        <h5 className="font-bold text-primary mb-2 flex items-center gap-2">
+                            <i className="fas fa-info-circle"></i> Cómo funciona
+                        </h5>
+                        <ol className="text-sm space-y-1 list-decimal pl-5 text-gray-700">
+                            <li>Seleccione el archivo <code className="bg-gray-100 px-1 rounded text-xs">CNPV2018_1VIV_A2_11.CSV</code></li>
+                            <li>Ajuste el máximo de filas (recomendado: 50000 para demo rápida)</li>
+                            <li>Click en "Ejecutar Análisis"</li>
+                            <li>El servidor validará y procesará el archivo en tiempo real</li>
+                            <li>Vea la distribución por departamento y estrato</li>
+                        </ol>
+                    </div>
+
+                    <div className="chip-box p-4 rounded-lg">
+                        <h5 className="font-bold text-secondary mb-2 flex items-center gap-2">
+                            <i className="fas fa-server"></i> Endpoint Usado
+                        </h5>
+                        <p className="text-sm text-gray-700 font-mono">POST /datasets/cnpv/analizar/?max_filas=50000</p>
+                        <p className="text-xs text-gray-600 mt-2">Este endpoint demuestra validación Pydantic y procesamiento de datos reales sin inventar campos.</p>
+                    </div>
+                </div>
+            );
+        };
+
+        const sections = [
+            {
+                id: 'overview',
+                title: '📊 Proyecto: Encuestas Poblacionales',
+                icon: Icons.BookOpen,
+                content: (
+                    <div className="space-y-6">
+                        <p className="text-gray-700 leading-relaxed">
+                            Una API REST profesional para recibir, validar y analizar encuestas poblacionales con datos reales del Censo Nacional de Población y Vivienda (CNPV). El proyecto demuestra arquitectura moderna de APIs con <strong>FastAPI</strong>, validación robusta con <strong>Pydantic</strong> y manejo de datos estadísticos.
+                        </p>
+
+                        <div className="grid md:grid-cols-3 gap-4">
+                            <div className="card-usta p-4 text-center">
+                                <div className="text-3xl mb-2">🎯</div>
+                                <h3 className="font-bold text-sm text-primary mb-1">RF1-RF5</h3>
+                                <p className="text-xs text-gray-600">Modelos anidados, validadores, CRUD, errores 422, async</p>
+                            </div>
+                            <div className="card-usta p-4 text-center">
+                                <div className="text-3xl mb-2">🔧</div>
+                                <h3 className="font-bold text-sm text-secondary mb-1">RT1-RT5</h3>
+                                <p className="text-xs text-gray-600">Entorno, Git, modular, Swagger/Redoc, decorador</p>
+                            </div>
+                            <div className="card-usta p-4 text-center">
+                                <div className="text-3xl mb-2">📈</div>
+                                <h3 className="font-bold text-sm text-navy mb-1">Bonus</h3>
+                                <p className="text-xs text-gray-600">9 tests, HTML panel, CNPV real data</p>
+                            </div>
+                        </div>
+
+                        <div className="chip-box p-4 rounded-lg">
+                            <h4 className="font-bold text-primary mb-2 flex items-center gap-2">
+                                <i className="fas fa-terminal"></i> Comenzar Rápido
+                            </h4>
+                            <pre className="text-xs bg-gray-900 text-green-400 p-2 rounded overflow-x-auto"><code>{`# 1. Activar entorno
+.\\venv\\Scripts\\Activate.ps1
+
+# 2. Instalar dependencias
+pip install -r requirements.txt
+
+# 3. Ejecutar servidor
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
+
+# 4. Abrir en navegador
+http://127.0.0.1:8000/docs`}</code></pre>
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'architecture',
+                title: '🏗️ Arquitectura del Proyecto',
+                icon: Icons.Server,
+                content: (
+                    <div className="space-y-6">
+                        <div className="grid md:grid-cols-2 gap-4 mb-6">
+                            <div className="card-usta p-4">
+                                <h4 className="font-bold text-primary mb-3 flex items-center gap-2">
+                                    <i className="fas fa-folder-open"></i> Estructura de Archivos
+                                </h4>
+                                <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto"><code>{`proyecto/
+├── main.py              # API principal, endpoints
+├── models.py            # Modelos Pydantic
+├── validators.py        # Validadores de campos
+├── database.py          # Persistencia en memoria
+├── utils.py             # Decorador @log_request
+├── requirements.txt     # Dependencias
+├── README.md            # Documentación
+├── index.html          # Este panel (demo)
+├── data/entrada/       # CSVs reales
+│   └── CNPV2018_*.CSV
+└── tests/
+    ├── test_models.py
+    └── test_endpoints.py`}</code></pre>
+                            </div>
+                            <div className="card-usta p-4">
+                                <h4 className="font-bold text-secondary mb-3 flex items-center gap-2">
+                                    <i className="fas fa-cube"></i> Stack Tecnológico
+                                </h4>
+                                <ul className="space-y-2 text-sm">
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-blue-600 font-bold">⚡</span>
+                                        <span><strong>FastAPI 0.116.1</strong> - Framework web ASGI</span>
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-purple-600 font-bold">🛡️</span>
+                                        <span><strong>Pydantic 2.11.7</strong> - Validación de datos</span>
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-green-600 font-bold">🚀</span>
+                                        <span><strong>Uvicorn 0.35.0</strong> - Servidor ASGI</span>
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-orange-600 font-bold">📊</span>
+                                        <span><strong>NumPy</strong> - Cálculos estadísticos</span>
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-red-600 font-bold">🧪</span>
+                                        <span><strong>Pytest 8.4.1</strong> - Testing</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div className="chip-box p-4 rounded-lg">
+                            <h4 className="font-bold text-primary mb-2 flex items-center gap-2">
+                                <i className="fas fa-lightbulb"></i> Conceptos Clave
+                            </h4>
+                            <ul className="text-sm space-y-2 text-gray-700">
+                                <li><strong>Modelos Anidados:</strong> Encuestado + List[RespuestaEncuesta] en EncuestaCompleta</li>
+                                <li><strong>Validadores before/after:</strong> Limpieza pre-asignación y validación post-asignación</li>
+                                <li><strong>CRUD REST:</strong> GET, POST, PUT, DELETE con códigos HTTP correctos (201, 404, 204)</li>
+                                <li><strong>Manejo de errores 422:</strong> RequestValidationError con detalles de validación</li>
+                                <li><strong>Async/Await:</strong> Endpoints asincronos listos para concurrencia ASGI</li>
+                            </ul>
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'endpoints',
+                title: '🔌 Endpoints CRUD',
+                icon: Icons.Server,
+                content: (
+                    <div className="space-y-6">
+                        <p className="text-gray-700">
+                            Todos los endpoints están documentados en <code className="bg-gray-100 px-2 py-1 rounded text-sm">/docs</code> (Swagger UI) y <code className="bg-gray-100 px-2 py-1 rounded text-sm">/redoc</code> (Redoc).
+                        </p>
+
+                        <div>
+                            <h4 className="font-bold text-primary mb-3">📝 Endpoints Genéricos (Encuestas)</h4>
+                            <EndpointCard
+                                method="POST"
+                                path="/encuestas/"
+                                description="Crear nueva encuesta. Retorna 201 Created con ID asignado."
+                                status="done"
+                            />
+                            <EndpointCard
+                                method="GET"
+                                path="/encuestas/"
+                                description="Listar todas las encuestas. Retorna array JSON."
+                                status="done"
+                            />
+                            <EndpointCard
+                                method="GET"
+                                path="/encuestas/{'{id}'}"
+                                description="Obtener encuesta por ID. Retorna 404 si no existe."
+                                status="done"
+                            />
+                            <EndpointCard
+                                method="PUT"
+                                path="/encuestas/{'{id}'}"
+                                description="Actualizar encuesta existente."
+                                status="done"
+                            />
+                            <EndpointCard
+                                method="DELETE"
+                                path="/encuestas/{'{id}'}"
+                                description="Eliminar encuesta. Retorna 204 No Content."
+                                status="done"
+                            />
+                            <EndpointCard
+                                method="GET"
+                                path="/encuestas/estadisticas/"
+                                description="Resumen estadístico: total, promedio edad, conteo por departamento y estrato."
+                                status="done"
+                            />
+                        </div>
+
+                        <div>
+                            <h4 className="font-bold text-secondary mb-3">🔵 Endpoints Especiales (CNPV Real)</h4>
+                            <EndpointCard
+                                method="POST"
+                                path="/datasets/cnpv/analizar/"
+                                description="Analizar archivo CNPV real sin inventar campos. Lee columnas reales: U_DPTO, VA1_ESTRATO, etc."
+                                status="done"
+                            />
+                            <EndpointCard
+                                method="GET"
+                                path="/datasets/cnpv/ultimo/"
+                                description="Consultar último reporte CNPV procesado."
+                                status="done"
+                            />
+                        </div>
+
+                        <div>
+                            <h4 className="font-bold text-navy mb-3">🌾 Endpoints Bonus</h4>
+                            <EndpointCard
+                                method="POST"
+                                path="/encuestas/seed/{'{cantidad}'}"
+                                description="Generar datos sintéticos con Faker (útil para demo)."
+                                status="done"
+                            />
+                            <EndpointCard
+                                method="POST"
+                                path="/encuestas/csv/"
+                                description="Cargar encuestas desde archivo CSV con mapeo de alias."
+                                status="done"
+                            />
+                            <EndpointCard
+                                method="GET"
+                                path="/"
+                                description="Panel HTML interactivo con checklist de requisitos y KPIs."
+                                status="done"
+                            />
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'models',
+                title: '📦 Modelos Pydantic (RF1)',
+                icon: Icons.Database,
+                content: (
+                    <div className="space-y-6">
+                        <p className="text-gray-700">
+                            Tres modelos anidados con validaciones complejas que demuestran tipos Union, Optional, List y validadores before/after.
+                        </p>
+
+                        <Accordion title="Encuestado" icon="👤">
+                            <div className="space-y-3">
+                                <p className="font-mono text-xs bg-gray-100 p-2 rounded">class Encuestado(BaseModel)</p>
+                                <ul className="text-xs space-y-1">
+                                    <li><strong>nombre:</strong> str (validado: 3+ caracteres, sin tildes)</li>
+                                    <li><strong>edad:</strong> int (0 a 120 años)</li>
+                                    <li><strong>estrato:</strong> int (1 a 6 niveles socioeconómicos colombianos)</li>
+                                    <li><strong>departamento:</strong> str (validado contra 32 departamentos reales de Colombia)</li>
+                                </ul>
+                            </div>
+                        </Accordion>
+
+                        <Accordion title="RespuestaEncuesta" icon="📋">
+                            <div className="space-y-3">
+                                <p className="font-mono text-xs bg-gray-100 p-2 rounded">class RespuestaEncuesta(BaseModel)</p>
+                                <ul className="text-xs space-y-1">
+                                    <li><strong>pregunta_id:</strong> int</li>
+                                    <li><strong>tipo_pregunta:</strong> Literal["likert", "porcentaje", "texto"]</li>
+                                    <li><strong>valor:</strong> Union[int, float, str] (tipo flexible según pregunta)</li>
+                                    <li><strong>comentario:</strong> Optional[str] (puede ser None)</li>
+                                </ul>
+                                <p className="text-xs text-gray-600 mt-2 italic">Usa @field_validator para validar por tipo: Likert 1-5, % 0-100, texto libre.</p>
+                            </div>
+                        </Accordion>
+
+                        <Accordion title="EncuestaCompleta" icon="📊">
+                            <div className="space-y-3">
+                                <p className="font-mono text-xs bg-gray-100 p-2 rounded">class EncuestaCompleta(BaseModel)</p>
+                                <ul className="text-xs space-y-1">
+                                    <li><strong>id:</strong> Optional[int] (auto-asignado por servidor)</li>
+                                    <li><strong>fecha_registro:</strong> datetime (UTC-aware)</li>
+                                    <li><strong>encuestado:</strong> Encuestado (modelo anidado ✨)</li>
+                                    <li><strong>respuestas:</strong> List[RespuestaEncuesta] (múltiples respuestas ✨)</li>
+                                </ul>
+                                <p className="text-xs text-gray-600 mt-2"><strong>✨ Anidación:</strong> Demuestra composición de modelos (RF1). Pydantic valida recursivamente toda la estructura.</p>
+                            </div>
+                        </Accordion>
+
+                        <div className="chip-box p-4 rounded-lg text-sm">
+                            <p><strong>¿Por qué modelos anidados?</strong> Porque en la realidad una encuesta tiene <strong>un</strong> encuestado y <strong>múltiples</strong> respuestas. Los modelos anidados reflejan esta estructura. Si todo fuera plano, sería confuso y propenso a errores.</p>
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'validators',
+                title: '✅ Validadores (RF2)',
+                icon: Icons.CheckSquare,
+                content: (
+                    <div className="space-y-6">
+                        <p className="text-gray-700">
+                            Validadores con modo <code className="bg-gray-100 px-1 rounded text-sm">before</code> (limpieza pre-asignación) y modo <code className="bg-gray-100 px-1 rounded text-sm">after</code> (validación post-asignación).
+                        </p>
+
+                        <Accordion title="mode='before' — Normalizar Nombre" icon="🧹">
+                            <div className="space-y-2 text-xs">
+                                <p className="font-mono bg-gray-100 p-2 rounded">@field_validator('nombre', mode='before')</p>
+                                <p className="text-gray-600">Acciones:</p>
+                                <ul className="list-disc pl-5 space-y-1">
+                                    <li>Elimina espacios en blanco (trim)</li>
+                                    <li>Convierte a minúsculas</li>
+                                    <li>Descompone caracteres Unicode (ó → o, á → a)</li>
+                                </ul>
+                                <p className="text-gray-600 mt-2">Ejemplo: "  José María  " → "jose maria"</p>
+                            </div>
+                        </Accordion>
+
+                        <Accordion title="mode='before' — Normalizar Departamento" icon="🗺️">
+                            <div className="space-y-2 text-xs">
+                                <p className="font-mono bg-gray-100 p-2 rounded">@field_validator('departamento', mode='before')</p>
+                                <p className="text-gray-600">Acciones:</p>
+                                <ul className="list-disc pl-5 space-y-1">
+                                    <li>Busca en lista de 32 departamentos colombianos reales</li>
+                                    <li>Usa búsqueda case-insensitive</li>
+                                    <li>Retorna nombre canónico si encuentra coincidencia</li>
+                                </ul>
+                                <p className="text-gray-600 mt-2">Ejemplo: "bogotá" → "Bogota" ✓</p>
+                                <p className="text-gray-600 mt-2">Ejemplo: "Marte" → Lanza ValueError ✗</p>
+                            </div>
+                        </Accordion>
+
+                        <Accordion title="mode='after' — Validar Edad" icon="👶">
+                            <div className="space-y-2 text-xs">
+                                <p className="font-mono bg-gray-100 p-2 rounded">@field_validator('edad', mode='after')</p>
+                                <p className="text-gray-600">Valida después de asignación:</p>
+                                <ul className="list-disc pl-5 space-y-1">
+                                    <li>0 ≤ edad ≤ 120</li>
+                                </ul>
+                                <p className="text-gray-600 mt-2">Ejemplo: 250 → Lanza ValueError (edad imposible) ✗</p>
+                            </div>
+                        </Accordion>
+
+                        <Accordion title="mode='after' — Validar Valor por Tipo" icon="🎯">
+                            <div className="space-y-2 text-xs">
+                                <p className="font-mono bg-gray-100 p-2 rounded">@field_validator('valor', mode='after')</p>
+                                <p className="text-gray-600">Valida según tipo de pregunta:</p>
+                                <ul className="list-disc pl-5 space-y-1">
+                                    <li>Likert: debe ser 1-5</li>
+                                    <li>Porcentaje: debe ser 0-100</li>
+                                    <li>Texto: cualquier string es válido</li>
+                                </ul>
+                                <p className="text-gray-600 mt-2">Ejemplo: tipo="likert", valor=10 → Error ✗</p>
+                            </div>
+                        </Accordion>
+
+                        <div className="chip-box p-4 rounded-lg text-sm">
+                            <p><strong>¿before vs after?</strong></p>
+                            <p className="mt-2">• <code>before</code>: Limpia y normaliza (ej: trim, lowercase, buscar en lista)</p>
+                            <p>• <code>after</code>: Valida que el valor final sea correcto (ej: rango, tipo, lógica)</p>
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'errors',
+                title: '⚠️ Manejo de Errores (RF4)',
+                icon: Icons.CheckSquare,
+                content: (
+                    <div className="space-y-6">
+                        <p className="text-gray-700">
+                            Manejador personalizado para errores de validación HTTP 422 con registro y respuesta estructurada.
+                        </p>
+
+                        <div className="card-usta p-4">
+                            <h4 className="font-bold text-sm mb-2 flex items-center gap-2">
+                                <i className="fas fa-code"></i> Implementación
+                            </h4>
+                            <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto"><code>{`@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    # Registra el error en logs
+    logging.error(f"Validación falló en {request.method} {request.url.path}: {len(exc.errors())} errores")
+    
+    # Retorna respuesta 422 estructurada
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()}
+    )`}</code></pre>
+                        </div>
+
+                        <div className="card-usta p-4">
+                            <h4 className="font-bold text-sm mb-2 flex items-center gap-2">
+                                <i className="fas fa-example"></i> Ejemplo de Error 422
+                            </h4>
+                            <p className="text-xs text-gray-600 mb-2">Enviando datos inválidos sin validadores:</p>
+                            <pre className="text-xs bg-gray-900 text-green-400 p-3 rounded overflow-x-auto"><code>{`{
+  "encuestado": {
+    "nombre": "Ana",
+    "edad": 250,           # ❌ Imposible
+    "estrato": 7,          # ❌ No existe
+    "departamento": "Marte" # ❌ No existe
+  },
+  "respuestas": []
+}`}</code></pre>
+                            <p className="text-xs text-gray-600 mt-2">Respuesta (422 Unprocessable Entity):</p>
+                            <pre className="text-xs bg-gray-900 text-red-400 p-3 rounded overflow-x-auto"><code>{`{
+  "detail": [
+    {
+      "type": "value_error",
+      "loc": ["body", "encuestado", "edad"],
+      "msg": "Edad debe estar entre 0 y 120",
+      "input": 250
+    },
+    {
+      "type": "value_error",
+      "loc": ["body", "encuestado", "departamento"],
+      "msg": "Departamento 'Marte' no encontrado",
+      "input": "Marte"
+    }
+  ]
+}`}</code></pre>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div className="card-usta p-4">
+                                <h4 className="font-bold text-sm text-red-600 mb-2">❌ HTTP 400 Bad Request</h4>
+                                <p className="text-xs text-gray-600">Se usa cuando el JSON es <strong>malformado</strong> (ej: JSON inválido, falta llaves)</p>
+                                <p className="text-xs text-gray-700 mt-2 italic">Culpa: del cliente (formato incorrecto)</p>
+                            </div>
+                            <div className="card-usta p-4">
+                                <h4 className="font-bold text-sm text-orange-600 mb-2">⚠️ HTTP 422 Unprocessable Entity</h4>
+                                <p className="text-xs text-gray-600">Se usa cuando el JSON es <strong>válido pero datos no pasan validación</strong> (ej: edad 250)</p>
+                                <p className="text-xs text-gray-700 mt-2 italic">Culpa: del cliente (datos incorrectos)</p>
+                            </div>
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'async',
+                title: '⚡ Async/Await (RF5)',
+                icon: Icons.Cpu,
+                content: (
+                    <div className="space-y-6">
+                        <p className="text-gray-700">
+                            Al menos un endpoint asincrónico usando <code className="bg-gray-100 px-1 rounded text-sm">async def</code> y <code className="bg-gray-100 px-1 rounded text-sm">await</code> para demostrar concurrencia ASGI.
+                        </p>
+
+                        <div className="card-usta p-4">
+                            <h4 className="font-bold text-sm mb-3">📝 Endpoint Asincrónico</h4>
+                            <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto"><code>{`@app.get("/encuestas/")
+async def listar_encuestas(request: Request):
+    """
+    Endpoint asincrónico que demuestra ASGI.
+    
+    Con 'async def' + 'await', si esta función se
+    demora (ej: I/O), el servidor NO se bloquea.
+    
+    Otros usuarios pueden hacer peticiones al mismo
+    tiempo sin esperar.
+    """
+    data = await database.listar()
+    return data`}</code></pre>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div className="card-usta p-4 border-l-4 border-red-500">
+                                <h4 className="font-bold text-sm text-red-600 mb-2 flex items-center gap-2">
+                                    <i className="fas fa-times-circle"></i> WSGI (Bloqueante)
+                                </h4>
+                                <div className="text-xs space-y-1">
+                                    <p>1. Usuario A llamaa operación lenta (5 segundos)</p>
+                                    <p>2. Servidor se <strong>bloquea</strong> esperando</p>
+                                    <p>3. Usuario B llama a otra ruta: <strong>ESPERA</strong> (congelado)</p>
+                                    <p>4. Usuario A termina (5 seg después)</p>
+                                    <p>5. Usuario B finalmente obtiene respuesta</p>
+                                </div>
+                            </div>
+                            <div className="card-usta p-4 border-l-4 border-green-500">
+                                <h4 className="font-bold text-sm text-green-600 mb-2 flex items-center gap-2">
+                                    <i className="fas fa-check-circle"></i> ASGI (FastAPI)
+                                </h4>
+                                <div className="text-xs space-y-1">
+                                    <p>1. Usuario A llama a operación lenta</p>
+                                    <p>2. Servidor: "Te dejo esperando, me voy" (await)</p>
+                                    <p>3. Usuario B llama otra ruta: <strong>RESPONDE INMEDIATAMENTE</strong></p>
+                                    <p>4. Usuario A y B obtienen respuestas sin bloquear</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="chip-box p-4 rounded-lg text-sm">
+                            <p><strong>Regla simple:</strong> Usa <code>async def</code> para I/O (BD, archivos, APIs externas). Usa <code>def</code> normal para cálculos pesados de CPU (NumPy, Pandas).</p>
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'testing',
+                title: '🧪 Pruebas (Tests)',
+                icon: Icons.CheckSquare,
+                content: (
+                    <div className="space-y-6">
+                        <p className="text-gray-700">
+                            9 tests unitarios e integración que validan modelos y endpoints.
+                        </p>
+
+                        <div className="card-usta p-4">
+                            <h4 className="font-bold text-sm mb-2">Ejecutar Tests</h4>
+                            <pre className="text-xs bg-gray-900 text-green-400 p-3 rounded overflow-x-auto"><code>{`pytest -q
+# Output:
+# test_models.py::test_encuestado_valido PASSED
+# test_models.py::test_edad_invalida PASSED
+# ...
+# 9 passed en 0.23s`}</code></pre>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <Accordion title="Tests de Modelos" icon="📦">
+                                <ul className="text-xs space-y-1">
+                                    <li>✅ Encuestado válido</li>
+                                    <li>❌ Edad inválida (fuera rango)</li>
+                                    <li>❌ Departamento inválido</li>
+                                    <li>✅ Normalización de datos</li>
+                                </ul>
+                            </Accordion>
+                            <Accordion title="Tests de Endpoints" icon="🔌">
+                                <ul className="text-xs space-y-1">
+                                    <li>✅ POST /encuestas/ (201 Created)</li>
+                                    <li>✅ GET /encuestas/ (200 OK)</li>
+                                    <li>❌ GET /encuestas/999 (404 Not Found)</li>
+                                    <li>✅ DELETE /encuestas/ (204 No Content)</li>
+                                </ul>
+                            </Accordion>
+                        </div>
+
+                        <div className="chip-box p-4 rounded-lg text-sm">
+                            <p><strong>Cobertura:</strong> Tests unitarios para modelos + tests de integración para endpoints. Valida caminos felices y caminos de error.</p>
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'checklist',
+                title: '✔️ Checklist de Requisitos',
+                icon: Icons.CheckSquare,
+                content: (
+                    <div className="space-y-6">
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <h4 className="font-bold text-sm mb-3 text-primary">📋 Requisitos Funcionales (RF)</h4>
+                                <ChecklistItem completed={true} title="RF1" description="3+ modelos anidados con Union, Optional, List" />
+                                <ChecklistItem completed={true} title="RF2" description="Validadores before/after + departamentos reales" />
+                                <ChecklistItem completed={true} title="RF3" description="CRUD completo + estadísticas con HTTP correctos" />
+                                <ChecklistItem completed={true} title="RF4" description="Manejador 422 personalizado con logging" />
+                                <ChecklistItem completed={true} title="RF5" description="Endpoint async con conceptos ASGI explicados" />
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-sm mb-3 text-secondary">🔧 Requisitos Técnicos (RT)</h4>
+                                <ChecklistItem completed={true} title="RT1" description="Entorno virtual (.venv) + requirements.txt" />
+                                <ChecklistItem completed={true} title="RT2" description="Git con develop + main, 6+ commits" />
+                                <ChecklistItem completed={true} title="RT3" description="Modular: main, models, validators, db, utils" />
+                                <ChecklistItem completed={true} title="RT4" description="Swagger UI (/docs) + Redoc (/redoc)" />
+                                <ChecklistItem completed={true} title="RT5" description="Decorador @log_request aplicado" />
+                            </div>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <h4 className="font-bold text-sm mb-3 text-gold">🎁 Bonuses</h4>
+                                <ChecklistItem completed={true} title="Tests" description="9 pruebas unitarias con pytest" />
+                                <ChecklistItem completed={true} title="HTML Panel" description="Interfaz en GET / con KPIs" />
+                                <ChecklistItem completed={true} title="CNPV Real" description="Análisis de datos reales sin inventar campos" />
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-sm mb-3 text-navy">📊 Métricas</h4>
+                                <div className="card-usta p-3 text-center">
+                                    <div className="text-2xl font-bold text-primary">5/5</div>
+                                    <p className="text-xs text-gray-600">RF completados</p>
+                                </div>
+                                <div className="card-usta p-3 text-center mt-2">
+                                    <div className="text-2xl font-bold text-secondary">5/5</div>
+                                    <p className="text-xs text-gray-600">RT completados</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            },
+            {
+                id: 'live-test',
+                title: '🧪 Prueba en Vivo',
+                icon: Icons.Code,
+                content: (
+                    <LiveTestSection />
+                )
+            },
+            {
+                id: 'guide',
+                title: '🚀 Guía de Ejecución',
+                icon: Icons.BookOpen,
+                content: (
+                    <div className="space-y-6">
+                        <Accordion title="Paso 1: Activar Entorno Virtual" icon="📦" open={true}>
+                            <pre className="text-xs bg-gray-900 text-green-400 p-3 rounded overflow-x-auto"><code>{`# En PowerShell (Windows)
+.\\venv\\Scripts\\Activate.ps1
+
+# En Bash (macOS/Linux)
+source venv/bin/activate
+
+# Verá (venv) al inicio del prompt cuando esté activo`}</code></pre>
+                        </Accordion>
+
+                        <Accordion title="Paso 2: Instalar Dependencias" icon="📥">
+                            <pre className="text-xs bg-gray-900 text-green-400 p-3 rounded overflow-x-auto"><code>{`pip install -r requirements.txt
+
+# O instalar manualmente:
+pip install fastapi uvicorn pydantic python-multipart pytest numpy`}</code></pre>
+                        </Accordion>
+
+                        <Accordion title="Paso 3: Ejecutar Servidor" icon="⚡">
+                            <pre className="text-xs bg-gray-900 text-green-400 p-3 rounded overflow-x-auto mb-2"><code>{`uvicorn main:app --reload --host 127.0.0.1 --port 8000`}</code></pre>
+                            <p className="text-xs text-gray-600">Verá: <code className="bg-gray-100 px-1 rounded">Uvicorn running on http://127.0.0.1:8000</code></p>
+                        </Accordion>
+
+                        <Accordion title="Paso 4: Acceder a la API" icon="🌐">
+                            <div className="space-y-2 text-xs">
+                                <p><strong>Panel HTML con demo:</strong> <code className="bg-gray-100 px-1 rounded">http://127.0.0.1:8000</code></p>
+                                <p><strong>Swagger UI (documentación):</strong> <code className="bg-gray-100 px-1 rounded">http://127.0.0.1:8000/docs</code></p>
+                                <p><strong>Redoc (docs alternativa):</strong> <code className="bg-gray-100 px-1 rounded">http://127.0.0.1:8000/redoc</code></p>
+                            </div>
+                        </Accordion>
+
+                        <Accordion title="Paso 5: Probar Endpoints" icon="🧪">
+                            <p className="text-xs text-gray-600 mb-2">Desde Swagger UI (/docs), puede:</p>
+                            <ul className="text-xs space-y-1 list-disc pl-5">
+                                <li>Expandir cada endpoint (ej: POST /encuestas/)</li>
+                                <li>Click en "Try it out"</li>
+                                <li>Completar los campos con datos de ejemplo</li>
+                                <li>Click en "Execute"</li>
+                                <li>Ver la respuesta JSON</li>
+                            </ul>
+                        </Accordion>
+
+                        <Accordion title="Paso 6: Cargar Datos CNPV (Opcional)" icon="📊">
+                            <p className="text-xs text-gray-600 mb-2">Para analizar su archivo real:</p>
+                            <ol className="text-xs space-y-1 list-decimal pl-5">
+                                <li>Abra Swagger UI (/docs)</li>
+                                <li>Busque POST /datasets/cnpv/analizar/</li>
+                                <li>Click "Try it out"</li>
+                                <li>Click en selector de archivo y elija: data/entrada/CNPV2018_1VIV_A2_11.CSV</li>
+                                <li>Opcionalmente ajuste max_filas (ej: 50000)</li>
+                                <li>Click "Execute"</li>
+                                <li>Vea el análisis: filas procesadas, distribución por departamento y estrato</li>
+                            </ol>
+                        </Accordion>
+
+                        <div className="chip-box p-4 rounded-lg text-sm">
+                            <i className="fas fa-info-circle text-primary mr-2"></i>
+                            <strong>Para detener el servidor:</strong> Presionar <code className="bg-gray-100 px-1 rounded">Ctrl + C</code> en la terminal
+                        </div>
+                    </div>
+                )
+            }
+        ];
+
+        const App = () => {
+            const [activeIndex, setActiveIndex] = useState(0);
+            const [sidebarOpen, setSidebarOpen] = useState(true);
+
+            const activeSection = sections[activeIndex];
+
+            return (
+                <div className="flex h-screen overflow-hidden bg-bg">
+                    {/* Botón flotante hamburguesa */}
+                    <button
+                        onClick={() => setSidebarOpen(!sidebarOpen)}
+                        className="fixed top-4 left-4 z-50 p-2.5 rounded-full shadow-lg text-white transition-all lg:hidden"
+                        style={{ background: 'linear-gradient(140deg, #3D008D, #ED1E79)' }}
+                    >
+                        <i className={`fas ${sidebarOpen ? 'fa-times' : 'fa-bars'}`}></i>
+                    </button>
+
+                    {/* Sidebar */}
+                    <div
+                        style={{
+                            width: sidebarOpen ? '16rem' : '0',
+                            minWidth: sidebarOpen ? '16rem' : '0',
+                            opacity: sidebarOpen ? 1 : 0,
+                            transition: 'width 0.3s, opacity 0.3s',
+                        }}
+                        className="flex-shrink-0 overflow-y-auto header-usta flex flex-col z-40 hidden lg:flex"
+                    >
+                        <div className="p-6 border-b border-white/10">
+                            <h1 className="text-white font-bold text-lg">📊 API Encuestas</h1>
+                            <p className="text-xs text-white/60 mt-1">CNPV + Pydantic + FastAPI</p>
+                        </div>
+                        <nav className="p-4 space-y-2 flex-1">
+                            {sections.map((sec, idx) => (
+                                <button
+                                    key={sec.id}
+                                    onClick={() => setActiveIndex(idx)}
+                                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${activeIndex === idx ? 'text-white font-semibold' : 'text-white/60 hover:text-white'}`}
+                                    style={activeIndex === idx ? { background: 'linear-gradient(140deg, #3D008D, #ED1E79)' } : {}}
+                                >
+                                    {sec.title}
+                                </button>
+                            ))}
+                        </nav>
+                    </div>
+
+                    {/* Contenido Principal */}
+                    <main className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full">
+                        <div className="mb-6 flex items-center justify-between">
+                            <span className="text-xs font-bold tracking-wider text-secondary uppercase">
+                                Sección {activeIndex + 1} de {sections.length}
+                            </span>
+                        </div>
+
+                        <SectionHeader title={activeSection.title} icon={activeSection.icon} />
+
+                        <div className="animate-fade-in">
+                            {activeSection.content}
+                        </div>
+
+                        {/* Footer */}
+                        <footer className="mt-16 pt-8 border-t border-gray-200">
+                            <div className="header-usta rounded-xl p-6 text-center text-white">
+                                <p className="font-medium text-sm">Universidad Santo Tomás (USTA) — Proyecto Encuestas</p>
+                                <p className="text-xs mt-1 text-white/60">FastAPI + Pydantic + CNPV Real Data</p>
+                                <p className="text-xs mt-2 text-white/40">Estado: ✅ Completo | Tests: 9/9 ✅ | Requisitos: RF1-5 + RT1-5 ✅</p>
+                            </div>
+                        </footer>
+
+                        {/* Navegación */}
+                        <div className="mt-8 flex justify-between items-center">
+                            <button
+                                disabled={activeIndex === 0}
+                                onClick={() => setActiveIndex(prev => prev - 1)}
+                                className="px-4 py-2 rounded-lg text-white font-semibold transition-all disabled:opacity-30 hover:scale-105"
+                                style={{ background: activeIndex > 0 ? 'linear-gradient(140deg, #3D008D, #ED1E79)' : 'gray' }}
+                            >
+                                ← Anterior
+                            </button>
+                            <span className="text-sm text-gray-500">{activeIndex + 1} de {sections.length}</span>
+                            <button
+                                disabled={activeIndex === sections.length - 1}
+                                onClick={() => setActiveIndex(prev => prev + 1)}
+                                className="px-4 py-2 rounded-lg text-white font-semibold transition-all disabled:opacity-30 hover:scale-105"
+                                style={{ background: activeIndex < sections.length - 1 ? 'linear-gradient(140deg, #3D008D, #ED1E79)' : 'gray' }}
+                            >
+                                Siguiente →
+                            </button>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from faker import Faker
 
 import database
@@ -16,6 +17,7 @@ from utils import log_request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("encuesta_api")
 faker = Faker("es_CO")
+ULTIMO_REPORTE_CNPV: dict[str, Any] | None = None
 
 app = FastAPI(
     title="API de Gestion de Encuestas Poblacionales",
@@ -25,6 +27,114 @@ app = FastAPI(
         "Incluye validacion robusta, manejo de errores HTTP 422 y estadisticas basicas."
     ),
 )
+
+# ============ CORS Configuration ============
+# Permite que el HTML panel se comunique con la API desde el navegador
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # En producción: especificar dominios
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+ALIASES_ENCUESTADO = {
+    "nombre": ["nombre", "nombres", "name", "encuestado_nombre", "participante", "full_name"],
+    "edad": ["edad", "age", "edad_anos", "anos"],
+    "estrato": ["estrato", "estrato_socioeconomico", "nivel_estrato", "socioeconomic_stratum"],
+    "departamento": ["departamento", "depto", "departamento_residencia", "region", "state"],
+}
+
+
+def _normalize_key(value: str) -> str:
+    return "".join(ch.lower() for ch in value.strip() if ch.isalnum() or ch in {"_", " "})
+
+
+def _get_by_alias(row: dict[str, Any], aliases: list[str]) -> str:
+    normalized_map = {_normalize_key(k): k for k in row.keys()}
+    for alias in aliases:
+        key = normalized_map.get(_normalize_key(alias))
+        if key is not None:
+            return (row.get(key) or "").strip()
+    return ""
+
+
+def _infer_tipo(col_name: str, raw: str) -> str:
+    name = _normalize_key(col_name)
+    raw_clean = raw.strip().replace(",", ".")
+    if "likert" in name:
+        return "likert"
+    if "porcentaje" in name or "percent" in name or "%" in col_name:
+        return "porcentaje"
+    try:
+        num = float(raw_clean)
+        if float(num).is_integer() and 1 <= int(num) <= 5:
+            return "likert"
+        if 0.0 <= num <= 100.0:
+            return "porcentaje"
+    except ValueError:
+        pass
+    return "texto"
+
+
+def _extract_respuestas_real(row: dict[str, Any]) -> list[dict[str, Any]]:
+    respuestas: list[dict[str, Any]] = []
+
+    # Formato estandar qN_tipo, qN_valor, qN_comentario
+    for qid in range(1, 101):
+        tipo = (row.get(f"q{qid}_tipo") or "").strip()
+        valor = (row.get(f"q{qid}_valor") or "").strip()
+        comentario = (row.get(f"q{qid}_comentario") or "").strip() or None
+        if tipo and valor:
+            respuestas.append(
+                {
+                    "pregunta_id": qid,
+                    "tipo_pregunta": tipo,
+                    "valor": valor,
+                    "comentario": comentario,
+                }
+            )
+
+    if respuestas:
+        return respuestas
+
+    # Formato fila-unica de respuesta
+    if row.get("tipo_pregunta") and row.get("valor"):
+        respuestas.append(
+            {
+                "pregunta_id": int((row.get("pregunta_id") or "1").strip()),
+                "tipo_pregunta": (row.get("tipo_pregunta") or "").strip(),
+                "valor": (row.get("valor") or "").strip(),
+                "comentario": (row.get("comentario") or "").strip() or None,
+            }
+        )
+        return respuestas
+
+    # Formato real general: cualquier columna extra se convierte en respuesta
+    columnas_base = {"nombre", "nombres", "name", "encuestado_nombre", "participante", "full_name",
+                     "edad", "age", "edad_anos", "anos",
+                     "estrato", "estrato_socioeconomico", "nivel_estrato", "socioeconomic_stratum",
+                     "departamento", "depto", "departamento_residencia", "region", "state"}
+
+    idx = 1
+    for col, raw in row.items():
+        if _normalize_key(col) in {_normalize_key(x) for x in columnas_base}:
+            continue
+        val = (raw or "").strip()
+        if not val:
+            continue
+        tipo = _infer_tipo(col, val)
+        respuestas.append(
+            {
+                "pregunta_id": idx,
+                "tipo_pregunta": tipo,
+                "valor": val,
+                "comentario": f"Columna original: {col}",
+            }
+        )
+        idx += 1
+
+    return respuestas
 
 
 @app.get(
@@ -107,7 +217,17 @@ def panel_demo() -> str:
                     <button class="alt" onclick="resetData()">Reset encuestas</button>
                     <button onclick="cargarEstado()">Refrescar estado</button>
                 </div>
-                <p class="note">CSV: usa <code>POST /encuestas/csv/</code> con archivo .csv desde Swagger.</p>
+                <hr style="border:0;border-top:1px solid #e8eef8;margin:12px 0;" />
+                <p class="note"><strong>Subir CSV real:</strong></p>
+                <input id="csvFile" type="file" accept=".csv" />
+                <div class="btns" style="margin-top:8px;">
+                    <button onclick="subirCsv()">Cargar CSV</button>
+                </div>
+                <p id="csvMsg" class="note"></p>
+                            <p class="note" style="margin-top:12px;padding:10px;background:#fff3cd;border-radius:8px;">
+                                <strong>ℹ️ Formato esperado:</strong> El CSV debe tener columnas <code>nombre</code>, <code>edad</code>, <code>estrato</code>, <code>departamento</code>.<br>
+                                Para cargar archivos <strong>CNPV real</strong>, use <a href="/index.html#live-test" style="color:#0f766e;font-weight:bold;">el panel "🧪 Prueba en Vivo"</a> en index.html
+                            </p>
             </section>
 
             <section class="card">
@@ -157,6 +277,31 @@ def panel_demo() -> str:
             await cargarEstado();
         }
 
+        async function subirCsv() {
+            const input = document.getElementById('csvFile');
+            const msg = document.getElementById('csvMsg');
+            if (!input.files.length) {
+                msg.innerText = 'Selecciona un archivo CSV primero.';
+                return;
+            }
+            const fd = new FormData();
+            fd.append('file', input.files[0]);
+            const resp = await fetch('/encuestas/csv/', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (!resp.ok) {
+                msg.innerText = 'Error: ' + JSON.stringify(data);
+                return;
+            }
+            msg.innerText =
+                'Archivo: ' + data.archivo +
+                ' | Creadas: ' + data.encuestas_creadas +
+                ' | Errores: ' + data.total_filas_con_error;
+                        if (data.total_filas_con_error > 0 && data.errores.length > 0) {
+                            msg.innerText += ' | Error: ' + data.errores[0].error;
+                        }
+            await cargarEstado();
+        }
+
         async function resetData() {
             await fetch('/encuestas/reset/', { method: 'POST' });
             await cargarEstado();
@@ -170,24 +315,119 @@ def panel_demo() -> str:
 
 
 @app.get(
-        "/demo/requisitos/",
-        summary="Checklist de cumplimiento",
-        description="Retorna un resumen de cumplimiento RF/RT para mostrar en demo.",
+    "/demo/requisitos/",
+    summary="Checklist de cumplimiento",
+    description="Retorna un resumen de cumplimiento RF/RT para mostrar en demo.",
 )
 def estado_requisitos() -> dict[str, Any]:
-        items = [
-                {"item": "RF1 - Modelos anidados y tipos complejos", "estado": "Cumple", "evidencia": "models.py"},
-                {"item": "RF2 - Validadores before/after", "estado": "Cumple", "evidencia": "models.py + validators.py"},
-                {"item": "RF3 - CRUD + estadisticas", "estado": "Cumple", "evidencia": "main.py"},
-                {"item": "RF4 - Handler HTTP 422", "estado": "Cumple", "evidencia": "main.py"},
-                {"item": "RF5 - Endpoint async + explicacion", "estado": "Cumple", "evidencia": "main.py"},
-                {"item": "RT1 - requirements + README", "estado": "Cumple", "evidencia": "requirements.txt + README.md"},
-                {"item": "RT2 - git 5 commits + main/develop", "estado": "Cumple", "evidencia": "historial git"},
-                {"item": "RT3 - Estructura modular", "estado": "Cumple", "evidencia": "raiz del proyecto"},
-                {"item": "RT4 - /docs + /redoc + examples", "estado": "Cumple", "evidencia": "FastAPI + models.py"},
-                {"item": "RT5 - Decorador personalizado", "estado": "Cumple", "evidencia": "utils.py + main.py"},
-        ]
-        return {"items": items}
+    items = [
+        {"item": "RF1 - Modelos anidados y tipos complejos", "estado": "Cumple", "evidencia": "models.py"},
+        {"item": "RF2 - Validadores before/after", "estado": "Cumple", "evidencia": "models.py + validators.py"},
+        {"item": "RF3 - CRUD + estadisticas", "estado": "Cumple", "evidencia": "main.py"},
+        {"item": "RF4 - Handler HTTP 422", "estado": "Cumple", "evidencia": "main.py"},
+        {"item": "RF5 - Endpoint async + explicacion", "estado": "Cumple", "evidencia": "main.py"},
+        {"item": "RT1 - requirements + README", "estado": "Cumple", "evidencia": "requirements.txt + README.md"},
+        {"item": "RT2 - git 5 commits + main/develop", "estado": "Cumple", "evidencia": "historial git"},
+        {"item": "RT3 - Estructura modular", "estado": "Cumple", "evidencia": "raiz del proyecto"},
+        {"item": "RT4 - /docs + /redoc + examples", "estado": "Cumple", "evidencia": "FastAPI + models.py"},
+        {"item": "RT5 - Decorador personalizado", "estado": "Cumple", "evidencia": "utils.py + main.py"},
+    ]
+    return {"items": items}
+
+
+@app.post(
+    "/datasets/cnpv/analizar/",
+    summary="Analizar base real CNPV",
+    description=(
+        "Analiza un CSV real del CNPV (viviendas) sin inventar campos. "
+        "Valida columnas requeridas y genera metricas descriptivas para sustentacion."
+    ),
+)
+@log_request
+async def analizar_csv_cnpv(
+    file: UploadFile = File(...),
+    max_filas: int = 50000,
+    request: Request = None,
+) -> dict[str, Any]:
+    global ULTIMO_REPORTE_CNPV
+
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="El archivo debe ser CSV")
+    if max_filas < 1 or max_filas > 2_000_000:
+        raise HTTPException(status_code=400, detail="max_filas debe estar entre 1 y 2000000")
+
+    contenido = await file.read()
+    try:
+        texto = contenido.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="No se pudo decodificar el CSV en UTF-8") from exc
+
+    reader = csv.DictReader(StringIO(texto))
+    requeridas = {"U_DPTO", "VA1_ESTRATO", "COD_ENCUESTAS", "U_VIVIENDA"}
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="El CSV no tiene encabezados")
+
+    faltantes = [c for c in sorted(requeridas) if c not in reader.fieldnames]
+    if faltantes:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "mensaje": "El archivo no coincide con estructura CNPV esperada",
+                "faltantes": faltantes,
+            },
+        )
+
+    total = 0
+    filas_validas = 0
+    filas_invalidas = 0
+    errores = []
+    conteo_dpto: Counter[str] = Counter()
+    conteo_estrato: Counter[str] = Counter()
+
+    for idx, fila in enumerate(reader, start=2):
+        if total >= max_filas:
+            break
+        total += 1
+
+        try:
+            dpto = (fila.get("U_DPTO") or "").strip()
+            estrato = (fila.get("VA1_ESTRATO") or "").strip()
+            cod_enc = (fila.get("COD_ENCUESTAS") or "").strip()
+            viv = (fila.get("U_VIVIENDA") or "").strip()
+
+            if not all([dpto, estrato, cod_enc, viv]):
+                raise ValueError("Campos clave vacios")
+
+            conteo_dpto[dpto] += 1
+            conteo_estrato[estrato] += 1
+            filas_validas += 1
+        except Exception as exc:  # noqa: BLE001
+            filas_invalidas += 1
+            if len(errores) < 25:
+                errores.append({"fila": idx, "error": str(exc)})
+
+    reporte = {
+        "archivo": file.filename,
+        "filas_procesadas": total,
+        "filas_validas": filas_validas,
+        "filas_invalidas": filas_invalidas,
+        "distribucion_u_dpto": dict(conteo_dpto),
+        "distribucion_estrato": dict(conteo_estrato),
+        "muestra_errores": errores,
+    }
+    ULTIMO_REPORTE_CNPV = reporte
+    return reporte
+
+
+@app.get(
+    "/datasets/cnpv/ultimo/",
+    summary="Ultimo reporte CNPV",
+    description="Devuelve el ultimo reporte generado al analizar un CSV CNPV real.",
+)
+def obtener_ultimo_reporte_cnpv() -> dict[str, Any]:
+    if ULTIMO_REPORTE_CNPV is None:
+        raise HTTPException(status_code=404, detail="No hay reporte CNPV cargado aun")
+    return ULTIMO_REPORTE_CNPV
 
 
 @app.exception_handler(RequestValidationError)
@@ -293,38 +533,25 @@ async def cargar_csv(file: UploadFile = File(...), request: Request = None) -> d
 
     for idx, fila in enumerate(reader, start=2):
         try:
-            respuestas = []
-            for qid in range(1, 21):
-                tipo = (fila.get(f"q{qid}_tipo") or "").strip()
-                valor = (fila.get(f"q{qid}_valor") or "").strip()
-                comentario = (fila.get(f"q{qid}_comentario") or "").strip() or None
-                if tipo and valor:
-                    respuestas.append(
-                        {
-                            "pregunta_id": qid,
-                            "tipo_pregunta": tipo,
-                            "valor": valor,
-                            "comentario": comentario,
-                        }
-                    )
+            respuestas = _extract_respuestas_real(fila)
 
-            # Fallback: una sola respuesta si no vino en formato qN_*
-            if not respuestas and fila.get("tipo_pregunta") and fila.get("valor"):
-                respuestas.append(
-                    {
-                        "pregunta_id": int((fila.get("pregunta_id") or "1").strip()),
-                        "tipo_pregunta": fila["tipo_pregunta"].strip(),
-                        "valor": (fila.get("valor") or "").strip(),
-                        "comentario": (fila.get("comentario") or "").strip() or None,
-                    }
+            nombre_raw = _get_by_alias(fila, ALIASES_ENCUESTADO["nombre"])
+            edad_raw = _get_by_alias(fila, ALIASES_ENCUESTADO["edad"])
+            estrato_raw = _get_by_alias(fila, ALIASES_ENCUESTADO["estrato"])
+            departamento_raw = _get_by_alias(fila, ALIASES_ENCUESTADO["departamento"])
+
+            if not all([nombre_raw, edad_raw, estrato_raw, departamento_raw]):
+                raise ValueError(
+                    "Faltan columnas base requeridas (nombre, edad, estrato, departamento). "
+                    "Puedes usar aliases como name, age, depto, estrato_socioeconomico."
                 )
 
             payload = EncuestaCompleta(
                 encuestado={
-                    "nombre": (fila.get("nombre") or "").strip(),
-                    "edad": int((fila.get("edad") or "0").strip()),
-                    "estrato": int((fila.get("estrato") or "0").strip()),
-                    "departamento": (fila.get("departamento") or "").strip(),
+                    "nombre": nombre_raw,
+                    "edad": int(float(edad_raw.replace(",", "."))),
+                    "estrato": int(float(estrato_raw.replace(",", "."))),
+                    "departamento": departamento_raw,
                 },
                 respuestas=respuestas,
             )
@@ -336,6 +563,7 @@ async def cargar_csv(file: UploadFile = File(...), request: Request = None) -> d
     return {
         "archivo": file.filename,
         "encuestas_creadas": creadas,
+        "total_filas_leidas": max(0, reader.line_num - 1),
         "errores": errores,
         "total_filas_con_error": len(errores),
     }

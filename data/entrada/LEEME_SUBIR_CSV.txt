@@ -1,0 +1,16 @@
+Coloca aqui tu CSV real para la sustentacion.
+
+Ruta recomendada:
+- data/entrada/tu_archivo_real.csv
+
+Como mostrarlo al profesor:
+1) Ejecuta la API:
+   uvicorn main:app --reload --host 127.0.0.1 --port 8000
+2) Abre el panel visual:
+   http://127.0.0.1:8000/
+3) En la tarjeta "Carga de CSV real", selecciona tu archivo y pulsa "Subir CSV".
+4) Muestra el resultado de filas creadas y posibles errores.
+5) Pulsa "Refrescar estado" para ver estadisticas actualizadas.
+
+Nota:
+- Si tu CSV usa otras columnas, comparte una muestra y se adapta el mapeo.
