@@ -332,6 +332,10 @@
             );
         };
 
+        const API_BASE = window.location.origin && window.location.origin.startsWith('http')
+            ? window.location.origin
+            : 'http://127.0.0.1:8000';
+
         // Detecta tipo de CSV leyendo el encabezado (primera línea) con FileReader
         const detectCsvType = (f) => new Promise((resolve) => {
             const reader = new FileReader();
@@ -396,9 +400,9 @@
 
                     let url;
                     if (csvType === 'cnpv') {
-                        url = 'http://127.0.0.1:8000/datasets/cnpv/analizar/';
+                        url = `${API_BASE}/datasets/cnpv/analizar/`;
                     } else {
-                        url = 'http://127.0.0.1:8000/encuestas/csv/';
+                        url = `${API_BASE}/encuestas/csv/`;
                     }
 
                     const response = await fetch(
@@ -421,7 +425,7 @@
                     if (err.name === 'AbortError') {
                         if (csvType === 'cnpv') {
                             try {
-                                const ultimo = await fetch('http://127.0.0.1:8000/datasets/cnpv/ultimo/');
+                                const ultimo = await fetch(`${API_BASE}/datasets/cnpv/ultimo/`);
                                 if (ultimo.ok) {
                                     const ultimoData = await ultimo.json();
                                     setResult({ ...ultimoData, _tipo: 'cnpv' });
@@ -433,10 +437,10 @@
                                 setError('Tiempo agotado. Intente nuevamente.');
                             }
                         } else {
-                            setError('Tiempo agotado (60s). Revise que la API esté activa en 127.0.0.1:8000.');
+                            setError(`Tiempo agotado (60s). Revise que la API esté activa en ${API_BASE}.`);
                         }
                     } else {
-                        setError(err.message || '¿Está corriendo el servidor en http://127.0.0.1:8000?');
+                        setError(err.message || `¿Está corriendo el servidor en ${API_BASE}?`);
                     }
                 } finally {
                     setLoading(false);
@@ -757,8 +761,8 @@
             const cargarResumen = async () => {
                 try {
                     const [rStats, rList] = await Promise.all([
-                        fetch('http://127.0.0.1:8000/encuestas/estadisticas/'),
-                        fetch('http://127.0.0.1:8000/encuestas/'),
+                        fetch(`${API_BASE}/encuestas/estadisticas/`),
+                        fetch(`${API_BASE}/encuestas/`),
                     ]);
 
                     if (!rStats.ok || !rList.ok) throw new Error('No se pudo consultar el resumen del CRUD');
@@ -781,7 +785,7 @@
                 setLoading(true);
                 setMsg('Generando datos fake...');
                 try {
-                    const resp = await fetch(`http://127.0.0.1:8000/encuestas/seed/${cantidad}`, { method: 'POST' });
+                    const resp = await fetch(`${API_BASE}/encuestas/seed/${cantidad}`, { method: 'POST' });
                     if (!resp.ok) throw new Error('No se pudieron generar datos con Faker');
                     setMsg(`OK: se generaron ${cantidad} encuestas fake para demo.`);
                     await cargarResumen();
@@ -796,7 +800,7 @@
                 setLoading(true);
                 setMsg('Reseteando encuestas...');
                 try {
-                    const resp = await fetch('http://127.0.0.1:8000/encuestas/reset/', { method: 'POST' });
+                    const resp = await fetch(`${API_BASE}/encuestas/reset/`, { method: 'POST' });
                     if (!resp.ok) throw new Error('No se pudo resetear la demo');
                     setMsg('OK: base en memoria limpiada.');
                     await cargarResumen();
@@ -817,7 +821,7 @@
                 setLoading(true);
                 setMsg(`Actualizando encuesta ${id}...`);
                 try {
-                    const getResp = await fetch(`http://127.0.0.1:8000/encuestas/${id}`);
+                    const getResp = await fetch(`${API_BASE}/encuestas/${id}`);
                     if (getResp.status === 404) throw new Error(`No existe la encuesta ${id}`);
                     if (!getResp.ok) throw new Error('No se pudo consultar la encuesta a actualizar');
 
@@ -830,7 +834,7 @@
                         },
                     };
 
-                    const putResp = await fetch(`http://127.0.0.1:8000/encuestas/${id}`, {
+                    const putResp = await fetch(`${API_BASE}/encuestas/${id}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),
@@ -857,7 +861,7 @@
                 setLoading(true);
                 setMsg(`Eliminando encuesta ${id}...`);
                 try {
-                    const resp = await fetch(`http://127.0.0.1:8000/encuestas/${id}`, { method: 'DELETE' });
+                    const resp = await fetch(`${API_BASE}/encuestas/${id}`, { method: 'DELETE' });
                     if (resp.status === 404) throw new Error(`No existe la encuesta ${id}`);
                     if (!resp.ok) throw new Error('No se pudo eliminar la encuesta');
                     setMsg(`OK: encuesta ${id} eliminada.`);
